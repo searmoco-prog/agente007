@@ -408,6 +408,68 @@ def generate_excel_bytes(df: pd.DataFrame) -> bytes:
 # ---------------------------------------------------------------
 # MOTOR DE ANÁLISIS DINÁMICO Y CRITERIOS (Text-to-Data Intelligence)
 # ---------------------------------------------------------------
+def _safe_row_text(row: pd.Series) -> str:
+    """Convierte toda la fila a texto de forma segura (evita crash con float/NaN)."""
+    return ' '.join(str(v) if v is not None else '' for v in row.values)
+
+def apply_multi_criteria(pregunta: str, df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Detecta criterios MULTI-NOMBRE en lenguaje natural y devuelve un DataFrame
+    con la columna 'status_criterio' aplicando las reglas del jefe.
+    Ejemplo: 'jesus no atendido ariel off y algo diferente atendidos'
+      → JESUS → PENDIENTE, ARIEL → PENDIENTE, resto → RESUELTO
+    """
+    p_lower = pregunta.lower()
+    
+    # Palabras que marcan 'NO ATENDIDO / PENDIENTE'
+    negativos = {'no atendido', 'pendiente', 'sin atender', 'off', 'no resuelto', 'bloqueado'}
+    # Palabras que marcan 'ATENDIDO / RESUELTO'
+    positivos = {'atendido', 'resuelto', 'ok', 'listo', 'cerrado', 'completado', 'diferente', 'otro', 'demas', 'demás'}
+
+    tiene_criterio_multi = any(t in p_lower for t in ['criterio', 'considera', 'aplica', 'marca', 'ponme', 'no atendido', 'atendido', 'off', 'diferente', 'demas'])
+    if not tiene_criterio_multi:
+        return None
+
+    # Buscar pares (nombre → estado) en la pregunta usando ventana deslizante de palabras
+    tokens = p_lower.split()
+    reglas = {}  # {keyword_en_columna: 'PENDIENTE' | 'RESUELTO'}
+    
+    for i, tok in enumerate(tokens):
+        if len(tok) < 3:
+            continue
+        # Buscar si este token existe en los datos
+        mask = df.astype(str).apply(_safe_row_text, axis=1).str.lower().str.contains(re.escape(tok))
+        if int(mask.sum()) > 0:
+            # Ver la siguiente o las dos próximas palabras para inferir estado
+            ventana = ' '.join(tokens[i+1:i+5])
+            if any(n in ventana for n in negativos):
+                reglas[tok] = 'PENDIENTE'
+            elif any(p in ventana for p in positivos):
+                reglas[tok] = 'RESUELTO'
+
+    if not reglas:
+        return None
+
+    # Determinar el estatus por defecto (el que aplica a "el resto / lo demás")
+    default_status = 'RESUELTO'
+    for p in positivos:
+        if p in p_lower:
+            default_status = 'RESUELTO'
+    for n in negativos:
+        if n in p_lower:
+            # Si hay menciones de "diferente" o "demás", lo que no coincide es el opuesto
+            pass
+
+    # Aplicar las reglas al dataframe en memoria (NO modifica el original)
+    df_crit = df.copy()
+    texto_filas = df_crit.astype(str).apply(_safe_row_text, axis=1).str.lower()
+    df_crit['status_criterio'] = default_status
+    for kw, estado in reglas.items():
+        mask_kw = texto_filas.str.contains(re.escape(kw))
+        df_crit.loc[mask_kw, 'status_criterio'] = estado
+
+    return df_crit, reglas, default_status
+
 def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
     """Extrae entidades, nombres, filtros y calcula criterios matemáticos en tiempo real."""
     p_lower = pregunta.lower()
@@ -426,19 +488,27 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
     # Palabras clave y entidades extraídas de la pregunta
     unique_words = set(re.findall(r'\b[a-záéíóúñ]{3,}\b', p_lower))
     stopwords = {
-        'dime', 'cuantos', 'estan', 'atendidos', 'tickets', 'como', 'para', 'este', 
-        'esta', 'pero', 'hacer', 'hola', 'buen', 'nombre', 'algo', 'traen', 'solo', 
-        'unos', 'unos', 'estos', 'favor', 'puede', 'puedo', 'cual', 'cuales'
+        'dime', 'cuantos', 'estan', 'atendidos', 'tickets', 'como', 'para', 'este',
+        'esta', 'pero', 'hacer', 'hola', 'buen', 'nombre', 'algo', 'traen', 'solo',
+        'unos', 'estos', 'favor', 'puede', 'puedo', 'cual', 'cuales', 'todos',
+        'ponme', 'aplica', 'criterio', 'diferente', 'demas', 'demás', 'resto',
+        'siguiente', 'todo', 'excepto', 'ayudar', 'aplicando', 'puedes', 'dicen',
+        'pides', 'generar', 'conteo', 'grafica', 'reporte', 'informe', 'quiero',
+        'dame', 'tengo', 'queda', 'quedan', 'poner', 'ponlos', 'marca', 'marcar',
+        'cuanto', 'cuando', 'donde', 'porque', 'tiene', 'tienen', 'decir',
+        'tipo', 'tipos', 'sea', 'son', 'hay', 'van', 'vez', 'mas',
+        'que', 'los', 'las', 'del', 'con', 'sin', 'por', 'una', 'uno', 'sus',
+        'hacer', 'decirme', 'generarme', 'darme', 'hacerlo'
     }
     keywords = [w for w in unique_words if w not in stopwords]
 
+    # ─── Búsqueda individual de cada entidad ───
     coincidencias = []
-    criterios_simulados = []
     no_encontrados = []
+    texto_filas = df.astype(str).apply(_safe_row_text, axis=1).str.lower()
 
     for kw in keywords:
-        # Búsqueda en todo el contenido de la fila
-        mask = df.astype(str).apply(lambda row: kw in ' '.join(row).lower(), axis=1)
+        mask = texto_filas.str.contains(re.escape(kw))
         count = int(mask.sum())
         if count > 0:
             sub = df[mask]
@@ -451,20 +521,6 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
                 f"  • Escenarios donde aparece: {dict(sub['Escenario_Limpio'].value_counts().head(3))}\n"
                 f"  • Acciones donde aparece: {dict(sub['Accion_Limpia'].value_counts().head(3))}"
             )
-
-            # Si el usuario pide aplicar o simular un criterio
-            if any(term in p_lower for term in ['criterio', 'no atendido', 'atendido', 'considera', 'aplica', 'marca', 'diferente', 'otra']):
-                pend_sim = count
-                res_sim = total - count
-                pct_sim = (res_sim / total) * 100
-                criterios_simulados.append(
-                    f"CÁLCULO DEL CRITERIO SOLICITADO POR EL JEFE:\n"
-                    f"  • Regla: Los tickets con '{kw.upper()}' se consideran NO ATENDIDOS y el resto ATENDIDOS.\n"
-                    f"  • Total de NO Atendidos (Pendientes): {pend_sim} tickets\n"
-                    f"  • Total de Atendidos (Resueltos): {res_sim} tickets\n"
-                    f"  • Efectividad / Avance simulado: {pct_sim:.1f}%\n"
-                    f"  • INSTRUCCIÓN PARA TU RESPUESTA: Explica detalladamente al jefe este cálculo con los números exactos."
-                )
         else:
             if len(kw) >= 4:
                 no_encontrados.append(f"• '{kw.capitalize()}': 0 tickets encontrados en la base.")
@@ -477,9 +533,47 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
         context_lines.append("\nBÚSQUEDAS SIN COINCIDENCIAS (0 REGISTROS):")
         context_lines.extend(no_encontrados)
 
-    if criterios_simulados:
-        context_lines.append("\nSIMULACIÓN DE CRITERIO:")
-        context_lines.extend(criterios_simulados)
+    # ─── Criterio MULTI-NOMBRE con reglas combinadas ───
+    tiene_criterio = any(t in p_lower for t in [
+        'criterio', 'no atendido', 'atendido', 'considera', 'aplica',
+        'marca', 'diferente', 'off', 'demas', 'demás'
+    ])
+    if tiene_criterio:
+        resultado_multi = apply_multi_criteria(pregunta, df)
+        if resultado_multi is not None:
+            df_crit, reglas, default_status = resultado_multi
+            total_crit = len(df_crit)
+            res_crit = int((df_crit['status_criterio'] == 'RESUELTO').sum())
+            pen_crit = int((df_crit['status_criterio'] == 'PENDIENTE').sum())
+            pct_crit = (res_crit / total_crit * 100) if total_crit > 0 else 0
+
+            reglas_str = '\n'.join(
+                f"    • Tickets con '{k.upper()}' → {v}" for k, v in reglas.items()
+            )
+            context_lines.append(
+                f"\nSIMULACIÓN MULTI-CRITERIO DEL JEFE:\n"
+                f"  Reglas aplicadas:\n{reglas_str}\n"
+                f"  • El resto de tickets (sin coincidencia) → {default_status}\n"
+                f"  RESULTADO DEL CRITERIO:\n"
+                f"  • Total analizado: {total_crit} tickets\n"
+                f"  • Atendidos (Resueltos): {res_crit}\n"
+                f"  • No Atendidos (Pendientes): {pen_crit}\n"
+                f"  • % de Avance con este criterio: {pct_crit:.1f}%\n"
+                f"  INSTRUCCIÓN: Explica al jefe CADA regla y el resultado final con los números exactos. "
+                f"Menciona cuántos quedaron en cada categoría y el porcentaje de avance resultante."
+            )
+        else:
+            # Si no se detectaron pares, hacer simulación simple por keyword encontrada
+            for kw in keywords:
+                mask = texto_filas.str.contains(re.escape(kw))
+                count = int(mask.sum())
+                if count > 0:
+                    res_sim = total - count
+                    pct_sim = (res_sim / total) * 100
+                    context_lines.append(
+                        f"\nCRITERIO SIMPLE ('{kw.upper()}' = NO ATENDIDOS, resto = ATENDIDOS):\n"
+                        f"  • No Atendidos: {count} | Atendidos: {res_sim} | Avance: {pct_sim:.1f}%"
+                    )
 
     return "\n".join(context_lines)
 
