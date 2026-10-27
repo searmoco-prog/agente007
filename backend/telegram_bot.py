@@ -129,21 +129,28 @@ async def fetch_cleaned_data() -> pd.DataFrame:
     df['Accion_Limpia'] = df.iloc[:, 3].fillna('SIN ACCIÓN').astype(str).str.strip()
     return df
 
-def generate_chart_bytes(df: pd.DataFrame) -> bytes:
-    """Genera la imagen PNG de la gráfica para visualización rápida."""
+def generate_chart_bytes(df: pd.DataFrame, status_col: str = 'status_normalizado', titulo_extra: str = '') -> bytes:
+    """
+    Genera la imagen PNG de la gráfica.
+    - status_col: columna a usar para calcular resueltos/pendientes.
+      Usa 'status_normalizado' (oficial) o 'status_criterio' (simulado por el jefe).
+    - titulo_extra: texto adicional para indicar que es un criterio personalizado.
+    """
     total_tickets = len(df)
-    resueltos = int((df['status_normalizado'] == 'RESUELTO').sum())
-    pendientes = int((df['status_normalizado'] == 'PENDIENTE').sum())
+    resueltos = int((df[status_col] == 'RESUELTO').sum())
+    pendientes = int((df[status_col] == 'PENDIENTE').sum())
     pct_resuelto = (resueltos / total_tickets) * 100 if total_tickets > 0 else 0
     pct_pendiente = (pendientes / total_tickets) * 100 if total_tickets > 0 else 0
 
     top_escenarios = df['Escenario_Limpio'].value_counts().head(5)
     top_acciones = df['Accion_Limpia'].value_counts().head(5)
 
+    titulo_linea2 = f'Total: {total_tickets} Tickets | {titulo_extra}' if titulo_extra else f'Total: {total_tickets} Tickets | Corte en Vivo'
+
     plt.style.use('dark_background')
     fig = plt.figure(figsize=(13, 7), facecolor='#0f172a')
     fig.suptitle(
-        f'AGENTE 007 - REPORTE DE OPERACIONES DE TELEFONÍA\nTotal: {total_tickets} Tickets | Corte en Vivo',
+        f'AGENTE 007 - REPORTE DE OPERACIONES DE TELEFONÍA\n{titulo_linea2}',
         fontsize=15, fontweight='bold', color='#38bdf8', y=0.96
     )
 
@@ -648,18 +655,26 @@ BOTONES_ACCIONES = {
     ]
 }
 
-async def send_chart_to_user(client: httpx.AsyncClient, chat_id: int):
-    """Envía únicamente la gráfica."""
-    await client.post(
-        f"{BASE_URL}/sendMessage",
-        json={"chat_id": chat_id, "text": "📊 Generando gráfica actualizada de operaciones..."}
-    )
-    df = await fetch_cleaned_data()
-    img_bytes = generate_chart_bytes(df)
+async def send_chart_to_user(client: httpx.AsyncClient, chat_id: int, df: pd.DataFrame = None, status_col: str = 'status_normalizado', titulo_extra: str = ''):
+    """Envía la gráfica. Si se pasa un df con criterio aplicado, usa ese."""
+    if df is None:
+        await client.post(
+            f"{BASE_URL}/sendMessage",
+            json={"chat_id": chat_id, "text": "📊 Generando gráfica actualizada de operaciones..."}
+        )
+        df = await fetch_cleaned_data()
+    else:
+        label = f"Criterio personalizado: {titulo_extra}" if titulo_extra else "Criterio personalizado aplicado"
+        await client.post(
+            f"{BASE_URL}/sendMessage",
+            json={"chat_id": chat_id, "text": f"📊 Generando gráfica con {label}..."}
+        )
+    img_bytes = generate_chart_bytes(df, status_col=status_col, titulo_extra=titulo_extra)
     files = {"photo": ("grafica_007.png", img_bytes, "image/png")}
+    caption = f"📊 Gráfica con criterio: {titulo_extra}" if titulo_extra else "📊 Gráfica oficial al corte de operaciones de hoy."
     await client.post(
         f"{BASE_URL}/sendPhoto",
-        data={"chat_id": chat_id, "caption": "📊 Gráfica oficial al corte de operaciones de hoy."},
+        data={"chat_id": chat_id, "caption": caption},
         files=files
     )
 
@@ -777,10 +792,30 @@ async def run_bot():
                         await send_excel_to_user(client, chat_id)
                         continue
 
-                    # CASO D: Preguntas sobre el trabajo / estado ("cómo vamos", "cuántos van", preguntas operativas)
+                    # CASO D: Preguntas sobre el trabajo / estado, criterios, análisis
                     df = await fetch_cleaned_data()
-                    respuesta_humana = await ask_ai_chat(texto, df)
 
+                    # Detectar si hay criterio multi-nombre activo en el mensaje
+                    tiene_criterio = any(t in texto_lower for t in [
+                        'criterio', 'no atendido', 'atendido', 'considera', 'aplica',
+                        'marca', 'diferente', 'off', 'demas', 'demás'
+                    ])
+                    pide_grafica_en_msg = any(p in texto_lower for p in ['grafica', 'gráfica', 'grafico', 'chart'])
+
+                    df_para_grafica = df
+                    status_col_grafica = 'status_normalizado'
+                    titulo_criterio = ''
+
+                    if tiene_criterio:
+                        resultado_multi = apply_multi_criteria(texto, df)
+                        if resultado_multi is not None:
+                            df_crit, reglas, default_status = resultado_multi
+                            df_para_grafica = df_crit
+                            status_col_grafica = 'status_criterio'
+                            reglas_str = ', '.join(f'{k.upper()}={"PENDIENTE" if v=="PENDIENTE" else "RESUELTO"}' for k, v in reglas.items())
+                            titulo_criterio = f'Criterio: {reglas_str}, Resto={default_status}'
+
+                    respuesta_humana = await ask_ai_chat(texto, df)
                     await client.post(
                         f"{BASE_URL}/sendMessage",
                         json={
@@ -789,6 +824,15 @@ async def run_bot():
                             "reply_markup": BOTONES_ACCIONES
                         }
                     )
+
+                    # Si el mensaje pedía gráfica Y se detectó criterio, enviarla automáticamente
+                    if pide_grafica_en_msg or (tiene_criterio and titulo_criterio):
+                        await send_chart_to_user(
+                            client, chat_id,
+                            df=df_para_grafica,
+                            status_col=status_col_grafica,
+                            titulo_extra=titulo_criterio
+                        )
 
             except Exception as e:
                 print(f"Error loop bot: {e}", flush=True)
