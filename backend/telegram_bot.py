@@ -266,11 +266,12 @@ def generate_criteria_chart_bytes(df_crit: pd.DataFrame, reglas_detalle: dict, d
     buf.seek(0)
     return buf.getvalue()
 
-def generate_excel_bytes(df: pd.DataFrame) -> bytes:
+def generate_excel_bytes(df: pd.DataFrame, status_col: str = 'status_normalizado', titulo_reporte: str = '') -> bytes:
     """
     Genera un libro Excel corporativo de nivel financiero con:
     - Gráficas nativas interactivas (PieChart y BarChart incrustados).
     - Fórmulas dinámicas vivas (=COUNTIF, =COUNTA, porcentajes).
+    - Columna con Fórmula viva de concatenación (=A2 & " - " & B2).
     - Formato condicional automático (Verde suave para RESUELTO, Coral suave para PENDIENTE).
     - Cruces y agregaciones consolidadas.
     """
@@ -302,7 +303,7 @@ def generate_excel_bytes(df: pd.DataFrame) -> bytes:
     ws_data = wb.create_sheet(title="Base_Consolidada")
     ws_data.views.sheetView[0].showGridLines = True
 
-    headers = ["Ticket", "REQ", "Escenario Normalizado", "Acción Requerida", "Estatus Operativo"]
+    headers = ["Ticket", "REQ", "Folio Completo (Fórmula)", "Escenario Normalizado", "Acción Requerida", "Estatus Operativo"]
     ws_data.append(headers)
 
     # Estilizar encabezado de datos
@@ -317,25 +318,28 @@ def generate_excel_bytes(df: pd.DataFrame) -> bytes:
     for row_idx, row in enumerate(df.itertuples(), start=2):
         ticket_val = str(row.Ticket) if pd.notna(row.Ticket) else ""
         req_val = str(row.REQ) if pd.notna(row.REQ) else ""
+        # Fórmula viva de Excel para concatenar Ticket y REQ
+        formula_concat = f'=A{row_idx} & " - " & B{row_idx}'
         esc_val = str(row.Escenario_Limpio)
         acc_val = str(row.Accion_Limpia)
-        stat_val = str(row.status_normalizado)
+        stat_val = str(getattr(row, status_col, row.status_normalizado))
 
-        ws_data.append([ticket_val, req_val, esc_val, acc_val, stat_val])
+        ws_data.append([ticket_val, req_val, formula_concat, esc_val, acc_val, stat_val])
 
         ws_data.cell(row=row_idx, column=1).alignment = align_center
         ws_data.cell(row=row_idx, column=2).alignment = align_center
-        ws_data.cell(row=row_idx, column=3).alignment = align_left
+        ws_data.cell(row=row_idx, column=3).alignment = align_center
         ws_data.cell(row=row_idx, column=4).alignment = align_left
+        ws_data.cell(row=row_idx, column=5).alignment = align_left
         
-        stat_cell = ws_data.cell(row=row_idx, column=5)
+        stat_cell = ws_data.cell(row=row_idx, column=6)
         stat_cell.alignment = align_center
         stat_cell.font = font_bold
 
-        for c in range(1, 6):
+        for c in range(1, 7):
             ws_data.cell(row=row_idx, column=c).border = thin_border
 
-    # Formato Condicional en Estatus (Columna E)
+    # Formato Condicional en Estatus (Columna F)
     green_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
     green_font = Font(color="375623", bold=True)
     red_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
@@ -344,7 +348,7 @@ def generate_excel_bytes(df: pd.DataFrame) -> bytes:
     rule_resuelto = CellIsRule(operator='equal', formula=['"RESUELTO"'], stopIfTrue=True, fill=green_fill, font=green_font)
     rule_pendiente = CellIsRule(operator='equal', formula=['"PENDIENTE"'], stopIfTrue=True, fill=red_fill, font=red_font)
 
-    status_range = f"E2:E{total_rows + 1}"
+    status_range = f"F2:F{total_rows + 1}"
     ws_data.conditional_formatting.add(status_range, rule_resuelto)
     ws_data.conditional_formatting.add(status_range, rule_pendiente)
 
@@ -352,10 +356,10 @@ def generate_excel_bytes(df: pd.DataFrame) -> bytes:
     for col in ws_data.columns:
         max_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = openpyxl.utils.get_column_letter(col[0].column)
-        ws_data.column_dimensions[col_letter].width = max(max_len + 4, 14)
+        ws_data.column_dimensions[col_letter].width = max(max_len + 4, 15)
 
     # Activar filtro automático
-    ws_data.auto_filter.ref = f"A1:E{total_rows + 1}"
+    ws_data.auto_filter.ref = f"A1:F{total_rows + 1}"
 
     # -------------------------------------------------------------
     # HOJA 1: Dashboard_Ejecutivo (Primera hoja visible)
@@ -367,15 +371,16 @@ def generate_excel_bytes(df: pd.DataFrame) -> bytes:
     # Banner Corporativo
     ws_dash.merge_cells("A1:G2")
     banner = ws_dash["A1"]
-    banner.value = "  AGENTE 007 — DASHBOARD DE OPERACIONES TELECOM (NOC L1/L2)"
+    titulo_texto = f"  AGENTE 007 — {titulo_reporte.upper()}" if titulo_reporte else "  AGENTE 007 — DASHBOARD DE OPERACIONES TELECOM (NOC L1/L2)"
+    banner.value = titulo_texto
     banner.font = font_titulo
     banner.fill = fill_navy
     banner.alignment = Alignment(horizontal="left", vertical="center")
 
-    ws_dash["A3"] = "Reporte Dinámico en Tiempo Real | Corte de Incidentes y Cruce de Acciones Operativas"
+    ws_dash["A3"] = "Reporte Dinámico en Tiempo Real | Corte de Incidentes, Fórmulas Vivas y Cruces Operativos"
     ws_dash["A3"].font = font_subtitulo
 
-    # Tabla 1: Indicadores Clave de Estatus (Fórmulas vivas)
+    # Tabla 1: Indicadores Clave de Estatus (Fórmulas vivas referenciadas a Columna F)
     ws_dash["A5"] = "Indicador Clave (KPI)"
     ws_dash["B5"] = "Total"
     ws_dash["C5"] = "% Avance"
@@ -388,12 +393,12 @@ def generate_excel_bytes(df: pd.DataFrame) -> bytes:
     ws_dash["B6"] = f"=COUNTA(Base_Consolidada!A2:A{total_rows + 1})"
     ws_dash["C6"] = "100.0%"
 
-    ws_dash["A7"] = "Resueltos"
-    ws_dash["B7"] = f'=COUNTIF(Base_Consolidada!E2:E{total_rows + 1}, "RESUELTO")'
+    ws_dash["A7"] = "Resueltos / Atendidos"
+    ws_dash["B7"] = f'=COUNTIF(Base_Consolidada!F2:F{total_rows + 1}, "RESUELTO")'
     ws_dash["C7"] = "=B7/B6"
 
-    ws_dash["A8"] = "Pendientes"
-    ws_dash["B8"] = f'=COUNTIF(Base_Consolidada!E2:E{total_rows + 1}, "PENDIENTE")'
+    ws_dash["A8"] = "Pendientes / Off"
+    ws_dash["B8"] = f'=COUNTIF(Base_Consolidada!F2:F{total_rows + 1}, "PENDIENTE")'
     ws_dash["C8"] = "=B8/B6"
 
     for r in range(6, 9):
@@ -764,18 +769,28 @@ async def send_criteria_chart_to_user(client: httpx.AsyncClient, chat_id: int, d
         files=files
     )
 
-async def send_excel_to_user(client: httpx.AsyncClient, chat_id: int):
-    """Envía el archivo Excel con gráficas nativas, fórmulas y formato condicional."""
-    await client.post(
-        f"{BASE_URL}/sendMessage",
-        json={"chat_id": chat_id, "text": "📁 Compilando libro Excel corporativo con gráficas nativas y fórmulas dinámicas..."}
-    )
-    df = await fetch_cleaned_data()
-    excel_bytes = generate_excel_bytes(df)
+ULTIMO_CRITERIO = {}  # {chat_id: (df_crit, reglas_detalle, default_status, titulo_reporte)}
+
+async def send_excel_to_user(client: httpx.AsyncClient, chat_id: int, df: pd.DataFrame = None, status_col: str = 'status_normalizado', titulo_reporte: str = ''):
+    """Envía el archivo Excel con gráficas nativas, fórmulas vivas y formato condicional."""
+    if df is None:
+        await client.post(
+            f"{BASE_URL}/sendMessage",
+            json={"chat_id": chat_id, "text": "📁 Compilando libro Excel corporativo con fórmulas automáticas..."}
+        )
+        df = await fetch_cleaned_data()
+    else:
+        label = f": {titulo_reporte}" if titulo_reporte else ""
+        await client.post(
+            f"{BASE_URL}/sendMessage",
+            json={"chat_id": chat_id, "text": f"📁 Compilando libro Excel con tu criterio personalizado{label} y fórmulas vivas..."}
+        )
+    excel_bytes = generate_excel_bytes(df, status_col=status_col, titulo_reporte=titulo_reporte)
     files = {"document": ("Reporte_Telecom_Consolidado_007.xlsx", excel_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    caption = f"📁 Reporte Excel con criterio: {titulo_reporte}" if titulo_reporte else "📁 Reporte Corporativo Oficial: Dashboard con gráficas nativas de Excel, fórmulas automáticas y formato condicional."
     await client.post(
         f"{BASE_URL}/sendDocument",
-        data={"chat_id": chat_id, "caption": "📁 Reporte Corporativo Oficial: Dashboard con gráficas nativas de Excel, fórmulas automáticas y formato condicional."},
+        data={"chat_id": chat_id, "caption": caption},
         files=files
     )
 
@@ -878,13 +893,18 @@ async def run_bot():
                         await send_chart_to_user(client, chat_id)
                         continue
 
-                    # CASO C: Petición explícita SIMPLE de Excel
-                    es_pedido_excel_simple = (
-                        any(palabra in texto_lower for palabra in ["excel", "xlsx", "/excel"])
-                        and len(texto.split()) <= 4
-                        and not any(c in texto_lower for c in ['criterio', 'jesus', 'ariel', 'atendido', 'filtra', 'si ', 'excepto'])
-                    )
-                    if es_pedido_excel_simple:
+                    # CASO C: Petición de Excel (Oficial o referenciando al criterio previo)
+                    pide_excel = any(palabra in texto_lower for palabra in ["excel", "xlsx", "/excel"])
+                    refiere_a_criterio = any(c in texto_lower for c in ['este criterio', 'del criterio', 'de esto', 'de este', 'con este', 'con criterio'])
+                    
+                    if pide_excel and (refiere_a_criterio or (chat_id in ULTIMO_CRITERIO and len(texto.split()) <= 12)):
+                        # Usuario pide el Excel del criterio que tiene activo
+                        if chat_id in ULTIMO_CRITERIO:
+                            df_crit, reglas_det, def_stat, tit = ULTIMO_CRITERIO[chat_id]
+                            await send_excel_to_user(client, chat_id, df=df_crit, status_col='status_criterio', titulo_reporte=tit)
+                            continue
+                    elif pide_excel and len(texto.split()) <= 4 and not any(c in texto_lower for c in ['criterio', 'jesus', 'ariel', 'atendido', 'filtra', 'si ', 'excepto']):
+                        # Pedido simple del Excel oficial
                         await send_excel_to_user(client, chat_id)
                         continue
 
@@ -892,6 +912,14 @@ async def run_bot():
                     df = await fetch_cleaned_data()
                     resultado_multi = apply_multi_criteria(texto, df)
                     pide_grafica_en_msg = any(p in texto_lower for p in ['grafica', 'gráfica', 'grafico', 'chart'])
+                    pide_excel_en_msg = any(p in texto_lower for p in ['excel', 'xlsx'])
+
+                    # Si se detectó un criterio nuevo, guardarlo en la sesión
+                    if resultado_multi is not None:
+                        df_crit, reglas_detalle, default_status = resultado_multi
+                        reglas_str = ', '.join(f'{k}={v["status"]}' for k, v in reglas_detalle.items() if k != 'RESTO (OTROS)')
+                        titulo_crit = f'Criterio: {reglas_str}, Resto={default_status}'
+                        ULTIMO_CRITERIO[chat_id] = (df_crit, reglas_detalle, default_status, titulo_crit)
 
                     # 1. Enviar primero la respuesta textual ejecutiva de la IA
                     respuesta_humana = await ask_ai_chat(texto, df)
@@ -915,6 +943,11 @@ async def run_bot():
                         )
                     elif pide_grafica_en_msg:
                         await send_chart_to_user(client, chat_id)
+
+                    # 3. Si en este mismo mensaje pidió también el Excel con el criterio:
+                    if resultado_multi is not None and pide_excel_en_msg:
+                        df_crit, reglas_detalle, default_status, tit = ULTIMO_CRITERIO[chat_id]
+                        await send_excel_to_user(client, chat_id, df=df_crit, status_col='status_criterio', titulo_reporte=tit)
 
             except Exception as e:
                 print(f"Error loop bot: {e}", flush=True)
