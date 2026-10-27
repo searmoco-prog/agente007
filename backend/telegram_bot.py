@@ -2,6 +2,7 @@ import os
 import sys
 import io
 import asyncio
+import traceback
 import httpx
 import pandas as pd
 import matplotlib
@@ -9,16 +10,29 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
 
-# Asegurar UTF-8 en Windows
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
-    sys.stderr.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
+# FORZAR FLUSH Y SALIDA EN TIEMPO REAL EN TODOS LOS SISTEMAS OPERATIVOS
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 load_dotenv()
 
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+SHEET_URL = os.getenv(
+    "GOOGLE_SHEET_CSV_URL", 
+    "https://docs.google.com/spreadsheets/d/1WWZ6fThbuZaFvH84PTeMg5FBpvqAcsgLEhpzIzRCpYg/export?format=csv&gid=0"
+).strip()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "").strip()
+
+print("=" * 60, flush=True)
+print("INICIANDO AGENTE 007...", flush=True)
+print(f"TOKEN CARGADO: {'SI (longitud ' + str(len(TOKEN)) + ')' if TOKEN else 'NO - VACIO'}", flush=True)
+print(f"GROQ KEY CARGADA: {'SI' if GROQ_API_KEY else 'NO'}", flush=True)
+print(f"GOOGLE SHEET URL: {'SI' if SHEET_URL else 'NO'}", flush=True)
+print("=" * 60, flush=True)
+
 # ---------------------------------------------------------------
-# HEALTH CHECK SERVER (Necesario para Render Web Service)
-# Abre un puerto HTTP mínimo para que Render no apague el proceso
+# HEALTH CHECK SERVER (Garantiza que Render detecte el puerto)
 # ---------------------------------------------------------------
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -26,26 +40,22 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header('Content-type', 'application/json')
         self.end_headers()
-        self.wfile.write(b'{"status": "Agente 007 Online"}')
+        self.wfile.write(b'{"status": "ok", "service": "Agente 007 Live"}')
     def log_message(self, format, *args):
-        pass  # Silenciar logs del servidor HTTP
+        pass
 
 def start_health_server():
-    port = int(os.getenv("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
-    server.serve_forever()
+    try:
+        port = int(os.getenv("PORT", 10000))
+        server = HTTPServer(("0.0.0.0", port), HealthHandler)
+        print(f"SERVIDOR DE PUERTO INICIADO EN 0.0.0.0:{port}", flush=True)
+        server.serve_forever()
+    except Exception as e:
+        print(f"Error en servidor HTTP: {e}", flush=True)
 
-# Arrancar el servidor de salud en un hilo separado (no bloquea el bot)
 threading.Thread(target=start_health_server, daemon=True).start()
-
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-SHEET_URL = os.getenv(
-    "GOOGLE_SHEET_CSV_URL", 
-    "https://docs.google.com/spreadsheets/d/1WWZ6fThbuZaFvH84PTeMg5FBpvqAcsgLEhpzIzRCpYg/export?format=csv&gid=0"
-)
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "").strip()
 
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 
@@ -298,5 +308,14 @@ async def run_bot():
                 print(f"Error en loop: {e}")
                 await asyncio.sleep(3)
 
+async def main_loop():
+    while True:
+        try:
+            await run_bot()
+        except Exception as e:
+            print(f"Error inesperado en bot: {e}", flush=True)
+            traceback.print_exc()
+        await asyncio.sleep(5)
+
 if __name__ == "__main__":
-    asyncio.run(run_bot())
+    asyncio.run(main_loop())
