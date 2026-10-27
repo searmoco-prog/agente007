@@ -1,6 +1,7 @@
 import os
 import sys
 import io
+import re
 import asyncio
 import traceback
 import httpx
@@ -9,6 +10,11 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
+
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.chart import PieChart, BarChart, Reference
+from openpyxl.formatting.rule import CellIsRule
 
 # Salida estándar sin buffer para logs en tiempo real
 sys.stdout.reconfigure(line_buffering=True)
@@ -34,6 +40,7 @@ MODELOS_GROQ = [
 MODELOS_GROQ = [m for m in MODELOS_GROQ if m]
 
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
+RENDER_URL = "https://agente007-61bf.onrender.com"
 
 # ---------------------------------------------------------------
 # SERVIDOR HTTP DE SALUD (Render Web Service)
@@ -46,7 +53,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
-        self.wfile.write(b'{"status": "ok", "service": "Agente 007 v3.0"}')
+        self.wfile.write(b'{"status": "ok", "service": "Agente 007 v3.5 Enterprise Shield"}')
     def log_message(self, format, *args):
         pass
 
@@ -60,6 +67,43 @@ def start_health_server():
         print(f"Error servidor HTTP: {e}", flush=True)
 
 threading.Thread(target=start_health_server, daemon=True).start()
+
+# ---------------------------------------------------------------
+# AUTO-PING KEEP-ALIVE (Anti-Sleep para Render Free Tier)
+# ---------------------------------------------------------------
+async def keep_alive_loop():
+    """Mantiene activo el bot en Render cada 10 minutos para evitar que duerma."""
+    await asyncio.sleep(45)
+    print("🚀 [KEEP-ALIVE] Centinela de disponibilidad iniciado en segundo plano.", flush=True)
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.get(RENDER_URL)
+                print(f"📡 [KEEP-ALIVE] Ping preventivo a Render: {r.status_code} OK (Servicio despierto)", flush=True)
+        except Exception as e:
+            print(f"⚠️ [KEEP-ALIVE] Error ping: {e}", flush=True)
+        await asyncio.sleep(600)  # Cada 10 minutos (Render suspende a los 15)
+
+# ---------------------------------------------------------------
+# ESCUDO DETERMINISTA PERIMETRAL (Guardrail Anti-Prompt Injection)
+# ---------------------------------------------------------------
+SECURITY_PATTERNS = [
+    r"(?i)\b(olvida|ignora|deshazte de|borra)\b.*?\b(instrucciones|directivas|reglas|rol|prompts)\b",
+    r"(?i)\b(ignore|disregard|forget)\b.*?\b(instructions|rules|system prompt|previous context)\b",
+    r"(?i)\b(system prompt|prompt del sistema|dame tu prompt|muestra tu prompt)\b",
+    r"(?i)\b(jailbreak|dan mode|developer mode|modo desarrollador|unrestricted mode)\b",
+    r"(?i)\b(eres un hacker|actua como un hacker|bypass security|vulnerabilidad)\b",
+    r"(?i)\b(drop table|select \* from|delete from|insert into|information_schema|xp_cmdshell)\b",
+    r"(?i)\b(dame|revela|muestra|extrae)\b.*?\b(contraseñas|passwords|claves|tokens|api_key|secrets|credenciales)\b",
+    r"(?i)\b(acceso|root|admin)\b.*?\b(base de datos|servidor|terminal|bash|powershell|consola)\b",
+]
+
+def check_perimeter_security(text: str) -> bool:
+    """Verifica si la petición contiene vectores de ataque antes de llegar al LLM."""
+    for pattern in SECURITY_PATTERNS:
+        if re.search(pattern, text):
+            return True
+    return False
 
 # ---------------------------------------------------------------
 # FUNCIONES DE DATOS Y GENERACIÓN
@@ -86,7 +130,7 @@ async def fetch_cleaned_data() -> pd.DataFrame:
     return df
 
 def generate_chart_bytes(df: pd.DataFrame) -> bytes:
-    """Genera la imagen PNG de la gráfica."""
+    """Genera la imagen PNG de la gráfica para visualización rápida."""
     total_tickets = len(df)
     resueltos = int((df['status_normalizado'] == 'RESUELTO').sum())
     pendientes = int((df['status_normalizado'] == 'PENDIENTE').sum())
@@ -149,28 +193,215 @@ def generate_chart_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue()
 
 def generate_excel_bytes(df: pd.DataFrame) -> bytes:
-    """Genera el archivo Excel profesional."""
+    """
+    Genera un libro Excel corporativo de nivel financiero con:
+    - Gráficas nativas interactivas (PieChart y BarChart incrustados).
+    - Fórmulas dinámicas vivas (=COUNTIF, =COUNTA, porcentajes).
+    - Formato condicional automático (Verde suave para RESUELTO, Coral suave para PENDIENTE).
+    - Cruces y agregaciones consolidadas.
+    """
+    wb = openpyxl.Workbook()
+    
+    # Fuentes y estilos
+    font_titulo = Font(name="Calibri", size=15, bold=True, color="FFFFFF")
+    font_subtitulo = Font(name="Calibri", size=10, italic=True, color="595959")
+    font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    font_bold = Font(name="Calibri", size=11, bold=True)
+    font_regular = Font(name="Calibri", size=11)
+    
+    fill_navy = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    fill_sub_navy = PatternFill(start_color="2F5597", end_color="2F5597", fill_type="solid")
+    fill_soft_gray = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    
+    thin_border_side = Side(style='thin', color="D9D9D9")
+    thin_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+    
+    align_center = Alignment(horizontal="center", vertical="center")
+    align_left = Alignment(horizontal="left", vertical="center")
+    align_right = Alignment(horizontal="right", vertical="center")
+
+    total_rows = len(df)
+
+    # -------------------------------------------------------------
+    # HOJA 2: Base_Consolidada (Alimentadora de datos)
+    # -------------------------------------------------------------
+    ws_data = wb.create_sheet(title="Base_Consolidada")
+    ws_data.views.sheetView[0].showGridLines = True
+
+    headers = ["Ticket", "REQ", "Escenario Normalizado", "Acción Requerida", "Estatus Operativo"]
+    ws_data.append(headers)
+
+    # Estilizar encabezado de datos
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws_data.cell(row=1, column=col_idx)
+        cell.font = font_header
+        cell.fill = fill_navy
+        cell.alignment = align_center
+    ws_data.row_dimensions[1].height = 26
+
+    # Insertar filas
+    for row_idx, row in enumerate(df.itertuples(), start=2):
+        ticket_val = str(row.Ticket) if pd.notna(row.Ticket) else ""
+        req_val = str(row.REQ) if pd.notna(row.REQ) else ""
+        esc_val = str(row.Escenario_Limpio)
+        acc_val = str(row.Accion_Limpia)
+        stat_val = str(row.status_normalizado)
+
+        ws_data.append([ticket_val, req_val, esc_val, acc_val, stat_val])
+
+        ws_data.cell(row=row_idx, column=1).alignment = align_center
+        ws_data.cell(row=row_idx, column=2).alignment = align_center
+        ws_data.cell(row=row_idx, column=3).alignment = align_left
+        ws_data.cell(row=row_idx, column=4).alignment = align_left
+        
+        stat_cell = ws_data.cell(row=row_idx, column=5)
+        stat_cell.alignment = align_center
+        stat_cell.font = font_bold
+
+        for c in range(1, 6):
+            ws_data.cell(row=row_idx, column=c).border = thin_border
+
+    # Formato Condicional en Estatus (Columna E)
+    green_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+    green_font = Font(color="375623", bold=True)
+    red_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+    red_font = Font(color="C00000", bold=True)
+
+    rule_resuelto = CellIsRule(operator='equal', formula=['"RESUELTO"'], stopIfTrue=True, fill=green_fill, font=green_font)
+    rule_pendiente = CellIsRule(operator='equal', formula=['"PENDIENTE"'], stopIfTrue=True, fill=red_fill, font=red_font)
+
+    status_range = f"E2:E{total_rows + 1}"
+    ws_data.conditional_formatting.add(status_range, rule_resuelto)
+    ws_data.conditional_formatting.add(status_range, rule_pendiente)
+
+    # Auto-ajustar anchos
+    for col in ws_data.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = openpyxl.utils.get_column_letter(col[0].column)
+        ws_data.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+    # Activar filtro automático
+    ws_data.auto_filter.ref = f"A1:E{total_rows + 1}"
+
+    # -------------------------------------------------------------
+    # HOJA 1: Dashboard_Ejecutivo (Primera hoja visible)
+    # -------------------------------------------------------------
+    ws_dash = wb.active
+    ws_dash.title = "Dashboard_Ejecutivo"
+    ws_dash.views.sheetView[0].showGridLines = True
+
+    # Banner Corporativo
+    ws_dash.merge_cells("A1:G2")
+    banner = ws_dash["A1"]
+    banner.value = "  AGENTE 007 — DASHBOARD DE OPERACIONES TELECOM (NOC L1/L2)"
+    banner.font = font_titulo
+    banner.fill = fill_navy
+    banner.alignment = Alignment(horizontal="left", vertical="center")
+
+    ws_dash["A3"] = "Reporte Dinámico en Tiempo Real | Corte de Incidentes y Cruce de Acciones Operativas"
+    ws_dash["A3"].font = font_subtitulo
+
+    # Tabla 1: Indicadores Clave de Estatus (Fórmulas vivas)
+    ws_dash["A5"] = "Indicador Clave (KPI)"
+    ws_dash["B5"] = "Total"
+    ws_dash["C5"] = "% Avance"
+    for col in ["A", "B", "C"]:
+        ws_dash[f"{col}5"].font = font_header
+        ws_dash[f"{col}5"].fill = fill_sub_navy
+        ws_dash[f"{col}5"].alignment = align_center
+
+    ws_dash["A6"] = "Tickets Auditados"
+    ws_dash["B6"] = f"=COUNTA(Base_Consolidada!A2:A{total_rows + 1})"
+    ws_dash["C6"] = "100.0%"
+
+    ws_dash["A7"] = "Resueltos"
+    ws_dash["B7"] = f'=COUNTIF(Base_Consolidada!E2:E{total_rows + 1}, "RESUELTO")'
+    ws_dash["C7"] = "=B7/B6"
+
+    ws_dash["A8"] = "Pendientes"
+    ws_dash["B8"] = f'=COUNTIF(Base_Consolidada!E2:E{total_rows + 1}, "PENDIENTE")'
+    ws_dash["C8"] = "=B8/B6"
+
+    for r in range(6, 9):
+        ws_dash[f"A{r}"].font = font_bold
+        ws_dash[f"B{r}"].font = font_bold
+        ws_dash[f"B{r}"].alignment = align_right
+        ws_dash[f"C{r}"].alignment = align_right
+        ws_dash[f"C{r}"].number_format = "0.0%"
+        for c in ["A", "B", "C"]:
+            ws_dash[f"{c}{r}"].border = thin_border
+
+    # Color verde suave a Resueltos y suave rojo a Pendientes en el KPI
+    ws_dash["A7"].fill = green_fill
+    ws_dash["B7"].fill = green_fill
+    ws_dash["C7"].fill = green_fill
+    ws_dash["A8"].fill = red_fill
+    ws_dash["B8"].fill = red_fill
+    ws_dash["C8"].fill = red_fill
+
+    # Tabla 2: Top Escenarios
+    ws_dash["E5"] = "Top Escenario"
+    ws_dash["F5"] = "Casos"
+    ws_dash["E5"].font = font_header
+    ws_dash["E5"].fill = fill_sub_navy
+    ws_dash["F5"].font = font_header
+    ws_dash["F5"].fill = fill_sub_navy
+    ws_dash["F5"].alignment = align_center
+
+    top_esc = df['Escenario_Limpio'].value_counts().head(5)
+    row_esc = 6
+    for esc_name, count_val in top_esc.items():
+        ws_dash[f"E{row_esc}"] = esc_name
+        ws_dash[f"F{row_esc}"] = int(count_val)
+        ws_dash[f"E{row_esc}"].font = font_regular
+        ws_dash[f"F{row_esc}"].font = font_bold
+        ws_dash[f"F{row_esc}"].alignment = align_right
+        ws_dash[f"E{row_esc}"].border = thin_border
+        ws_dash[f"F{row_esc}"].border = thin_border
+        row_esc += 1
+
+    # Anchos de columnas en Dashboard
+    ws_dash.column_dimensions["A"].width = 24
+    ws_dash.column_dimensions["B"].width = 12
+    ws_dash.column_dimensions["C"].width = 12
+    ws_dash.column_dimensions["D"].width = 4
+    ws_dash.column_dimensions["E"].width = 26
+    ws_dash.column_dimensions["F"].width = 10
+    ws_dash.column_dimensions["G"].width = 4
+
+    # -------------------------------------------------------------
+    # GRÁFICAS NATIVAS INCORPORADAS EN EXCEL
+    # -------------------------------------------------------------
+    # 1. Gráfica de Pastel (Estatus)
+    pie = PieChart()
+    pie.title = "Distribución de Estatus Operativo"
+    pie.style = 10
+    data_pie = Reference(ws_dash, min_col=2, min_row=6, max_row=8)
+    labels_pie = Reference(ws_dash, min_col=1, min_row=7, max_row=8)
+    pie.add_data(data_pie, titles_from_data=False)
+    pie.set_categories(labels_pie)
+    pie.width = 13
+    pie.height = 9
+    ws_dash.add_chart(pie, "A11")
+
+    # 2. Gráfica de Barras (Top Escenarios)
+    bar = BarChart()
+    bar.type = "col"
+    bar.style = 10
+    bar.title = "Top Escenarios con Mayor Demanda"
+    bar.y_axis.title = "Volumen de Tickets"
+    bar.x_axis.title = "Escenario"
+    data_bar = Reference(ws_dash, min_col=6, min_row=5, max_row=row_esc - 1)
+    labels_bar = Reference(ws_dash, min_col=5, min_row=6, max_row=row_esc - 1)
+    bar.add_data(data_bar, titles_from_data=True)
+    bar.set_categories(labels_bar)
+    bar.legend = None
+    bar.width = 15
+    bar.height = 9
+    ws_dash.add_chart(bar, "E11")
+
     buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        col_export = ['Ticket', 'REQ', 'Escenario_Limpio', 'Accion_Limpia', 'status_normalizado']
-        df_export = df[col_export].rename(columns={
-            'Escenario_Limpio': 'Escenario Normalizado',
-            'Accion_Limpia': 'Acción Requerida',
-            'status_normalizado': 'Estatus'
-        })
-        df_export.to_excel(writer, sheet_name='Tickets_Consolidados', index=False)
-
-        resumen_data = {
-            'Métrica': ['Total Tickets', 'Resueltos', 'Pendientes', '% Avance'],
-            'Valor': [
-                len(df),
-                int((df['status_normalizado'] == 'RESUELTO').sum()),
-                int((df['status_normalizado'] == 'PENDIENTE').sum()),
-                f"{(df['status_normalizado'] == 'RESUELTO').sum() / len(df) * 100:.1f}%"
-            ]
-        }
-        pd.DataFrame(resumen_data).to_excel(writer, sheet_name='Resumen_Operativo', index=False)
-
+    wb.save(buf)
     buf.seek(0)
     return buf.getvalue()
 
@@ -186,10 +417,10 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame) -> str:
     top_esc = df['Escenario_Limpio'].value_counts().head(3).to_dict()
 
     system_prompt = (
-        "Eres el 'Agente 007', el asistente y copiloto inteligente de operaciones de telecomunicaciones. "
+        "Eres el 'Agente 007', el copiloto inteligente de operaciones de telecomunicaciones. "
         "Habla de forma humana, profesional, amigable y respetuosa con tu jefe ('Hola jefe', 'Buen día'). "
         "Sé breve y conciso: máximo 2 o 3 párrafos cortos con viñetas. "
-        "Nunca uses markdown complejo ni código. Responde con calidez y precisión."
+        "Nunca uses markdown complejo ni código. Responde con calidez y precisión técnica."
     )
 
     contexto = (
@@ -232,13 +463,13 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame) -> str:
     )
 
 # ---------------------------------------------------------------
-# BOT LOOP CON ENRUTADOR DE INTENCIONES Y BOTONES
+# BOTONES INTERACTIVOS
 # ---------------------------------------------------------------
 BOTONES_ACCIONES = {
     "inline_keyboard": [
         [
             {"text": "📊 Ver Gráfica", "callback_data": "btn_chart"},
-            {"text": "📁 Descargar Excel", "callback_data": "btn_excel"}
+            {"text": "📁 Descargar Excel Avanzado", "callback_data": "btn_excel"}
         ],
         [
             {"text": "🔄 Actualizar Resumen", "callback_data": "btn_summary"}
@@ -250,7 +481,7 @@ async def send_chart_to_user(client: httpx.AsyncClient, chat_id: int):
     """Envía únicamente la gráfica."""
     await client.post(
         f"{BASE_URL}/sendMessage",
-        json={"chat_id": chat_id, "text": "📊 Generando gráfica actualizada..."}
+        json={"chat_id": chat_id, "text": "📊 Generando gráfica actualizada de operaciones..."}
     )
     df = await fetch_cleaned_data()
     img_bytes = generate_chart_bytes(df)
@@ -262,28 +493,34 @@ async def send_chart_to_user(client: httpx.AsyncClient, chat_id: int):
     )
 
 async def send_excel_to_user(client: httpx.AsyncClient, chat_id: int):
-    """Envía únicamente el archivo Excel."""
+    """Envía el archivo Excel con gráficas nativas, fórmulas y formato condicional."""
     await client.post(
         f"{BASE_URL}/sendMessage",
-        json={"chat_id": chat_id, "text": "📁 Compilando archivo Excel consolidado..."}
+        json={"chat_id": chat_id, "text": "📁 Compilando libro Excel corporativo con gráficas nativas y fórmulas dinámicas..."}
     )
     df = await fetch_cleaned_data()
     excel_bytes = generate_excel_bytes(df)
     files = {"document": ("Reporte_Telecom_Consolidado_007.xlsx", excel_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
     await client.post(
         f"{BASE_URL}/sendDocument",
-        data={"chat_id": chat_id, "caption": "📁 Base consolidada con los 258 tickets normalizados y resumen ejecutivo."},
+        data={"chat_id": chat_id, "caption": "📁 Reporte Corporativo Oficial: Dashboard con gráficas nativas de Excel, fórmulas automáticas y formato condicional."},
         files=files
     )
 
+# ---------------------------------------------------------------
+# BOT LOOP CON ENRUTADOR DE INTENCIONES Y PERÍMETRO DE SEGURIDAD
+# ---------------------------------------------------------------
 async def run_bot():
     if not TOKEN:
         print("ERROR: TELEGRAM_BOT_TOKEN no configurado", flush=True)
         return
 
-    print("=" * 60, flush=True)
-    print("🤖 AGENTE 007 v3.0 (MODO CONVERSACIONAL HUMANO) ACTIVO", flush=True)
-    print("=" * 60, flush=True)
+    print("=" * 65, flush=True)
+    print("🤖 AGENTE 007 v3.5 (ENTERPRISE SHIELD + EXCEL DASHBOARD) ACTIVO", flush=True)
+    print("=" * 65, flush=True)
+
+    # Iniciar Centinela Keep-Alive
+    asyncio.create_task(keep_alive_loop())
 
     offset = 0
     async with httpx.AsyncClient(timeout=40.0) as client:
@@ -303,7 +540,6 @@ async def run_bot():
                         cb_data = cb.get("data", "")
                         cb_chat_id = cb["message"]["chat"]["id"]
                         
-                        # Confirmar recepción del botón a Telegram
                         await client.post(f"{BASE_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
 
                         if cb_data == "btn_chart":
@@ -330,13 +566,29 @@ async def run_bot():
 
                     print(f"Mensaje de {chat_id}: {texto}", flush=True)
 
+                    # 🛡️ CAPA 0: ESCUDO DE SEGURIDAD PERIMETRAL (Guardrail Anti-Jailbreak)
+                    if check_perimeter_security(texto):
+                        print(f"🚨 ALERTA: Intento de ataque perimetral bloqueado de {chat_id}: {texto}", flush=True)
+                        alerta_seguridad = (
+                            "🚨 [ESCUDO DE SEGURIDAD 007 ACTIVADO]\n\n"
+                            "⚠️ Se detectó un intento de inyección de prompt, evasión de directivas o comando no autorizado.\n\n"
+                            "🔒 Acción: La petición ha sido bloqueada en el perímetro determinista.\n"
+                            "🛡️ El modelo de IA y las bases de datos operativas se mantienen blindados.\n"
+                            "📌 Incidente registrado en la bitácora de auditoría de seguridad."
+                        )
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={"chat_id": chat_id, "text": alerta_seguridad}
+                        )
+                        continue
+
                     # CASO A: Saludos casuales (CERO costo, CERO demora, respuesta humana instantánea)
                     saludos = ["hola", "buen dia", "buenos dias", "buenas", "buenas tardes", "buenas noches", "hey", "que tal", "/start"]
                     if any(texto_lower.startswith(s) for s in saludos) and len(texto_lower) < 25:
                         msg_saludo = (
                             "¡Hola jefe, buen día! 🫡 Agente 007 a la orden.\n\n"
                             "¿En qué le puedo apoyar hoy? Puedo darle el corte de tickets en vivo, "
-                            "generarle la gráfica o prepararle el Excel consolidado."
+                            "generarle la gráfica o prepararle el Excel corporativo con gráficas nativas."
                         )
                         await client.post(
                             f"{BASE_URL}/sendMessage",
@@ -355,7 +607,6 @@ async def run_bot():
                         continue
 
                     # CASO D: Preguntas sobre el trabajo / estado ("cómo vamos", "cuántos van", preguntas operativas)
-                    # Responde con texto amigable y ofrece los botones sin spamear archivos pesados
                     df = await fetch_cleaned_data()
                     respuesta_humana = await ask_ai_chat(texto, df)
 
