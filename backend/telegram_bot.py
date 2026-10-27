@@ -23,6 +23,17 @@ SHEET_URL = os.getenv(
 ).strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "").strip()
+GROQ_MODEL_CUSTOM = os.getenv("GROQ_MODEL", "").strip()
+
+# LISTA OFICIAL DE MODELOS SOPORTADOS (En orden de prioridad)
+MODELOS_GROQ_DISPONIBLES = [
+    GROQ_MODEL_CUSTOM,          # Si el usuario define uno en variables
+    "qwen/qwen3.8-27b",         # El modelo oficial de tu captura
+    "llama-3.3-70b-versatile",  # Llama 3.3 70B
+    "llama-3.1-8b-instant",     # Llama 3.1 rápido
+]
+# Filtrar cadenas vacías
+MODELOS_GROQ_DISPONIBLES = [m for m in MODELOS_GROQ_DISPONIBLES if m]
 
 print("=" * 60, flush=True)
 print("INICIANDO AGENTE 007...", flush=True)
@@ -202,13 +213,14 @@ async def call_ai_analysis(prompt_usuario: str, df: pd.DataFrame) -> str:
         f"Responde directamente a su pregunta dando el estado del turno, qué significa este avance y una recomendación práctica."
     )
 
-    # 1. Intentar Groq
+    # 1. Intentar Groq con la lista de modelos configurados
     if GROQ_API_KEY:
         try:
             from groq import AsyncGroq
             client = AsyncGroq(api_key=GROQ_API_KEY)
-            for model_name in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+            for model_name in MODELOS_GROQ_DISPONIBLES:
                 try:
+                    print(f"Probando modelo en Groq: '{model_name}'...", flush=True)
                     chat_completion = await client.chat.completions.create(
                         messages=[
                             {"role": "system", "content": system_prompt},
@@ -218,11 +230,13 @@ async def call_ai_analysis(prompt_usuario: str, df: pd.DataFrame) -> str:
                         temperature=0.4,
                         max_tokens=600
                     )
-                    return chat_completion.choices[0].message.content
+                    respuesta = chat_completion.choices[0].message.content
+                    print(f"-> EXITO con modelo: {model_name}!", flush=True)
+                    return respuesta
                 except Exception as m_err:
-                    print(f"Fallo modelo {model_name} en Groq: {m_err}", flush=True)
+                    print(f"Aviso: Fallo con modelo '{model_name}' en Groq: {m_err}", flush=True)
         except Exception as e:
-            print(f"Aviso: Falló cliente Groq: {e}", flush=True)
+            print(f"Aviso: Error inicializando cliente Groq: {e}", flush=True)
 
     # 2. Intentar Cerebras
     if CEREBRAS_API_KEY:
