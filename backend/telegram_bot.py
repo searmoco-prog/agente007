@@ -17,6 +17,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import PieChart, BarChart, Reference
 from openpyxl.formatting.rule import CellIsRule
+from dynamic_excel_agent import generate_dynamic_custom_excel
 
 # Salida estándar sin buffer para logs en tiempo real
 sys.stdout.reconfigure(line_buffering=True)
@@ -829,6 +830,33 @@ async def send_excel_to_user(client: httpx.AsyncClient, chat_id: int, df: pd.Dat
         files=files
     )
 
+async def send_dynamic_custom_excel(client: httpx.AsyncClient, chat_id: int, query: str, df: pd.DataFrame = None):
+    """Genera y envía un Excel a medida con filtros, colores y fórmulas vivas solicitadas en lenguaje natural."""
+    if df is None:
+        df = await fetch_cleaned_data()
+
+    await client.post(
+        f"{BASE_URL}/sendMessage",
+        json={"chat_id": chat_id, "text": "⚡ Procesando su requerimiento en memoria segura y armando el libro Excel a medida..."}
+    )
+
+    try:
+        excel_bytes, filename, resumen = generate_dynamic_custom_excel(query, df)
+        files = {"document": (filename, excel_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+        await client.post(
+            f"{BASE_URL}/sendDocument",
+            data={"chat_id": chat_id, "caption": f"📁 {filename} preparado y verificado."},
+            files=files
+        )
+        await client.post(
+            f"{BASE_URL}/sendMessage",
+            json={"chat_id": chat_id, "text": resumen, "reply_markup": BOTONES_ACCIONES}
+        )
+    except Exception as e:
+        print(f"Error generando dynamic excel: {e}", flush=True)
+        # Fallback al generador corporativo estándar
+        await send_excel_to_user(client, chat_id, df=df, titulo_reporte="Reporte Operativo")
+
 # ---------------------------------------------------------------
 # BOT LOOP CON ENRUTADOR DE INTENCIONES Y PERÍMETRO DE SEGURIDAD
 # ---------------------------------------------------------------
@@ -928,12 +956,22 @@ async def run_bot():
                         await send_chart_to_user(client, chat_id)
                         continue
 
-                    # CASO C: Petición de Excel (Oficial o referenciando al criterio previo)
+                    # CASO C: Petición de Excel (Personalizado dinámico, Oficial o referenciando al criterio previo)
                     pide_excel = any(palabra in texto_lower for palabra in ["excel", "xlsx", "/excel"])
                     refiere_a_criterio = any(c in texto_lower for c in ['este criterio', 'del criterio', 'de esto', 'de este', 'con este', 'con criterio'])
-                    
+                    es_excel_dinamico = any(k in texto_lower for k in [
+                        'pint', 'color', 'extrae', 'extraer', 'solo ', 'formula', 'fórmula', 
+                        'concatena', 'concatenar', 'azul', 'amarillo', 'verde', 'rojo', 'morado', 'naranja', 'personalizado', 'ariel'
+                    ])
+
+                    # 1. Petición explícita de Excel a medida con filtros, colores o fórmulas
+                    if pide_excel and es_excel_dinamico:
+                        df = await fetch_cleaned_data()
+                        await send_dynamic_custom_excel(client, chat_id, texto, df)
+                        continue
+
+                    # 2. Petición de Excel del criterio activo en memoria
                     if pide_excel and (refiere_a_criterio or (chat_id in ULTIMO_CRITERIO and len(texto.split()) <= 12)):
-                        # Usuario pide el Excel del criterio que tiene activo
                         if chat_id in ULTIMO_CRITERIO:
                             df_crit, reglas_det, def_stat, tit = ULTIMO_CRITERIO[chat_id]
                             await send_excel_to_user(client, chat_id, df=df_crit, status_col='status_criterio', titulo_reporte=tit)
@@ -979,10 +1017,15 @@ async def run_bot():
                     elif pide_grafica_en_msg:
                         await send_chart_to_user(client, chat_id)
 
-                    # 3. Si en este mismo mensaje pidió también el Excel con el criterio:
-                    if resultado_multi is not None and pide_excel_en_msg:
-                        df_crit, reglas_detalle, default_status, tit = ULTIMO_CRITERIO[chat_id]
-                        await send_excel_to_user(client, chat_id, df=df_crit, status_col='status_criterio', titulo_reporte=tit)
+                    # 3. Si en este mismo mensaje pidió también el Excel:
+                    if pide_excel_en_msg:
+                        if es_excel_dinamico or any(k in texto_lower for k in ['pint', 'color', 'extrae', 'solo ', 'formula', 'concatena', 'azul', 'amarillo', 'verde', 'rojo', 'morado']):
+                            await send_dynamic_custom_excel(client, chat_id, texto, df)
+                        elif resultado_multi is not None and chat_id in ULTIMO_CRITERIO:
+                            df_crit, reglas_detalle, default_status, tit = ULTIMO_CRITERIO[chat_id]
+                            await send_excel_to_user(client, chat_id, df=df_crit, status_col='status_criterio', titulo_reporte=tit)
+                        else:
+                            await send_excel_to_user(client, chat_id, df=df)
 
             except Exception as e:
                 print(f"Error loop bot: {e}", flush=True)
