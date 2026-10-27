@@ -519,6 +519,23 @@ def apply_multi_criteria(pregunta: str, df: pd.DataFrame):
     """
     p_norm = strip_accents(pregunta)
     
+    # 1. Filtro Exclusivo por Escenario (ej. 'solo app', 'filtra por portabilidad')
+    escenarios_map = {
+        'app': 'APP',
+        'portabilidad': 'PORTABILIDAD',
+        'activacion': 'ACTIVACIÓN',
+        'cambio nir': 'CAMBIO NIR'
+    }
+    quiere_filtro_escenario = any(f in p_norm for f in ['solo ', 'solamente ', 'filtra por ', 'filtrar por ', 'unicamente '])
+    if quiere_filtro_escenario:
+        for esc_k, esc_v in escenarios_map.items():
+            if esc_k in p_norm:
+                df_sub = df[df['Escenario_Limpio'] == esc_v].copy()
+                if len(df_sub) > 0:
+                    df_sub['status_criterio'] = df_sub['status_normalizado']
+                    reglas_detalle = {f'SOLO {esc_v}': {'status': 'FILTRADO', 'count': len(df_sub)}}
+                    return df_sub, reglas_detalle, 'FILTRADO'
+
     tiene_criterio = any(t in p_norm for t in [
         'criterio', 'considera', 'aplica', 'marca', 'ponme', 'no atendido', 'atendido', 
         'off', 'diferente', 'demas', 'resto', 'excepto', 'otro', 'cambia'
@@ -600,7 +617,8 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
         'cuanto', 'cuando', 'donde', 'porque', 'tiene', 'tienen', 'decir',
         'tipo', 'tipos', 'sea', 'son', 'hay', 'van', 'vez', 'mas',
         'que', 'los', 'las', 'del', 'con', 'sin', 'por', 'una', 'uno', 'sus',
-        'hacer', 'decirme', 'generarme', 'darme', 'hacerlo'
+        'hacer', 'decirme', 'generarme', 'darme', 'hacerlo',
+        'excel', 'xlsx', 'archivo', 'documento', 'hoja', 'descargar'
     }
     keywords = [w for w in unique_words if w not in stopwords]
 
@@ -647,8 +665,8 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
     if resultado_multi is not None:
         df_crit, reglas_detalle, default_status = resultado_multi
         total_crit = len(df_crit)
-        res_crit = int((df_crit['status_criterio'] == 'RESUELTO').sum())
-        pen_crit = int((df_crit['status_criterio'] == 'PENDIENTE').sum())
+        res_crit = int((df_crit['status_criterio'] == 'RESUELTO').sum()) if 'status_criterio' in df_crit else 0
+        pen_crit = int((df_crit['status_criterio'] == 'PENDIENTE').sum()) if 'status_criterio' in df_crit else 0
         pct_crit = (res_crit / total_crit * 100) if total_crit > 0 else 0
 
         reglas_str = '\n'.join(
@@ -669,27 +687,34 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
     return "\n".join(context_lines)
 
 # ---------------------------------------------------------------
-# IA CONVERSACIONAL (Groq / Cerebras)
+# IA CONVERSACIONAL (Groq / Cerebras) CON MEMORIA DE SESIÓN
 # ---------------------------------------------------------------
-async def ask_ai_chat(pregunta: str, df: pd.DataFrame) -> str:
-    """Genera una respuesta humana, concisa y ejecutiva analizando criterios y datos reales."""
+HISTORIAL_CHAT = {}  # {chat_id: [{"role": "user"|"assistant", "content": "..."}]}
+
+async def ask_ai_chat(pregunta: str, df: pd.DataFrame, chat_id: int = None) -> str:
+    """Genera una respuesta humana, concisa y ejecutiva analizando criterios y con memoria conversacional."""
     analisis_datos = analyze_query_with_df(pregunta, df)
 
     system_prompt = (
         "Eres el 'Agente 007', el copiloto inteligente de operaciones de telecomunicaciones. "
         "Habla de forma humana, profesional, amigable y respetuosa con tu jefe ('Hola jefe', 'Buen día'). "
-        "Tienes acceso al análisis matemático en tiempo real de la base de tickets. "
+        "Tienes acceso al análisis matemático en tiempo real de la base de tickets y recuerdas el contexto de la conversación. "
         "Si tu jefe te pregunta por una persona (ejemplo: 'Jesús', 'Ariel'), por un escenario o te pide aplicar un criterio hipotético, "
         "utiliza siempre los números exactos calculados en el contexto (no inventes números). "
         "Sé claro, conciso y estructurado (2 a 3 párrafos con viñetas limpias). "
         "Nunca uses markdown complejo ni código. Responde con calidez y rigor técnico."
     )
 
-    contexto = (
-        f"{analisis_datos}\n\n"
-        f"Mensaje de tu jefe: \"{pregunta}\"\n\n"
-        f"Responde directamente con los datos exactos de forma natural, ejecutiva y breve."
-    )
+    messages = [
+        {"role": "system", "content": f"{system_prompt}\n\nDATOS OPERATIVOS EN VIVO:\n{analisis_datos}"}
+    ]
+
+    # Agregar historial reciente (últimos 4 mensajes) si existe para continuidad conversacional
+    if chat_id and chat_id in HISTORIAL_CHAT:
+        messages.extend(HISTORIAL_CHAT[chat_id][-4:])
+
+    messages.append({"role": "user", "content": pregunta})
+    respuesta_final = None
 
     if GROQ_API_KEY:
         try:
@@ -698,31 +723,41 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame) -> str:
             for m in MODELOS_GROQ:
                 try:
                     res = await client.chat.completions.create(
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": contexto}
-                        ],
+                        messages=messages,
                         model=m,
                         temperature=0.3,
                         max_tokens=400
                     )
-                    return res.choices[0].message.content
+                    respuesta_final = res.choices[0].message.content
+                    break
                 except Exception:
                     pass
         except Exception as e:
             print(f"Error Groq: {e}", flush=True)
 
-    # Fallback si no hay IA
-    total = len(df)
-    resueltos = int((df['status_normalizado'] == 'RESUELTO').sum())
-    pendientes = int((df['status_normalizado'] == 'PENDIENTE').sum())
-    pct = (resueltos / total * 100) if total > 0 else 0
-    return (
-        f"¡Hola jefe! Al corte de este momento llevamos {total} tickets en la base:\n\n"
-        f"• ✅ {resueltos} resueltos ({pct:.1f}%)\n"
-        f"• ⏳ {pendientes} pendientes\n\n"
-        f"La gran mayoría están concentrados en App y Portabilidad. ¿Gusta que le envíe la gráfica o el archivo Excel?"
-    )
+    if not respuesta_final:
+        # Fallback si no hay IA
+        total = len(df)
+        resueltos = int((df['status_normalizado'] == 'RESUELTO').sum())
+        pendientes = int((df['status_normalizado'] == 'PENDIENTE').sum())
+        pct = (resueltos / total * 100) if total > 0 else 0
+        respuesta_final = (
+            f"¡Hola jefe! Al corte de este momento llevamos {total} tickets en la base:\n\n"
+            f"• ✅ {resueltos} resueltos ({pct:.1f}%)\n"
+            f"• ⏳ {pendientes} pendientes\n\n"
+            f"La gran mayoría están concentrados en App y Portabilidad. ¿Gusta que le envíe la gráfica o el archivo Excel?"
+        )
+
+    # Actualizar historial de sesión
+    if chat_id:
+        if chat_id not in HISTORIAL_CHAT:
+            HISTORIAL_CHAT[chat_id] = []
+        HISTORIAL_CHAT[chat_id].append({"role": "user", "content": pregunta})
+        HISTORIAL_CHAT[chat_id].append({"role": "assistant", "content": respuesta_final})
+        if len(HISTORIAL_CHAT[chat_id]) > 8:
+            HISTORIAL_CHAT[chat_id] = HISTORIAL_CHAT[chat_id][-8:]
+
+    return respuesta_final
 
 # ---------------------------------------------------------------
 # BOTONES INTERACTIVOS
@@ -835,7 +870,7 @@ async def run_bot():
                             await send_excel_to_user(client, cb_chat_id)
                         elif cb_data == "btn_summary":
                             df = await fetch_cleaned_data()
-                            resumen = await ask_ai_chat("Dame el resumen general del turno", df)
+                            resumen = await ask_ai_chat("Dame el resumen general del turno", df, chat_id=cb_chat_id)
                             await client.post(
                                 f"{BASE_URL}/sendMessage",
                                 json={"chat_id": cb_chat_id, "text": resumen, "reply_markup": BOTONES_ACCIONES}
@@ -922,7 +957,7 @@ async def run_bot():
                         ULTIMO_CRITERIO[chat_id] = (df_crit, reglas_detalle, default_status, titulo_crit)
 
                     # 1. Enviar primero la respuesta textual ejecutiva de la IA
-                    respuesta_humana = await ask_ai_chat(texto, df)
+                    respuesta_humana = await ask_ai_chat(texto, df, chat_id=chat_id)
                     await client.post(
                         f"{BASE_URL}/sendMessage",
                         json={
