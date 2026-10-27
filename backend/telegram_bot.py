@@ -2,6 +2,8 @@ import os
 import sys
 import io
 import re
+import difflib
+import unicodedata
 import asyncio
 import traceback
 import httpx
@@ -129,32 +131,27 @@ async def fetch_cleaned_data() -> pd.DataFrame:
     df['Accion_Limpia'] = df.iloc[:, 3].fillna('SIN ACCIÓN').astype(str).str.strip()
     return df
 
-def generate_chart_bytes(df: pd.DataFrame, status_col: str = 'status_normalizado', titulo_extra: str = '') -> bytes:
+def generate_chart_bytes(df: pd.DataFrame) -> bytes:
     """
-    Genera la imagen PNG de la gráfica.
-    - status_col: columna a usar para calcular resueltos/pendientes.
-      Usa 'status_normalizado' (oficial) o 'status_criterio' (simulado por el jefe).
-    - titulo_extra: texto adicional para indicar que es un criterio personalizado.
+    Genera la imagen PNG de la gráfica OFICIAL de base (corte real del Google Sheet).
     """
     total_tickets = len(df)
-    resueltos = int((df[status_col] == 'RESUELTO').sum())
-    pendientes = int((df[status_col] == 'PENDIENTE').sum())
+    resueltos = int((df['status_normalizado'] == 'RESUELTO').sum())
+    pendientes = int((df['status_normalizado'] == 'PENDIENTE').sum())
     pct_resuelto = (resueltos / total_tickets) * 100 if total_tickets > 0 else 0
     pct_pendiente = (pendientes / total_tickets) * 100 if total_tickets > 0 else 0
 
     top_escenarios = df['Escenario_Limpio'].value_counts().head(5)
     top_acciones = df['Accion_Limpia'].value_counts().head(5)
 
-    titulo_linea2 = f'Total: {total_tickets} Tickets | {titulo_extra}' if titulo_extra else f'Total: {total_tickets} Tickets | Corte en Vivo'
-
     plt.style.use('dark_background')
     fig = plt.figure(figsize=(13, 7), facecolor='#0f172a')
     fig.suptitle(
-        f'AGENTE 007 - REPORTE DE OPERACIONES DE TELEFONÍA\n{titulo_linea2}',
+        f'AGENTE 007 - REPORTE DE OPERACIONES DE TELEFONÍA\nTotal: {total_tickets} Tickets | Corte Oficial en Vivo',
         fontsize=15, fontweight='bold', color='#38bdf8', y=0.96
     )
 
-    # Donut Chart
+    # Donut Chart Oficial
     ax1 = fig.add_subplot(1, 3, 1, facecolor='#0f172a')
     ax1.pie(
         [resueltos, pendientes], 
@@ -164,7 +161,7 @@ def generate_chart_bytes(df: pd.DataFrame, status_col: str = 'status_normalizado
         textprops={'fontsize': 10, 'color': '#f8fafc', 'fontweight': 'bold'},
         wedgeprops={'width': 0.45, 'edgecolor': '#0f172a', 'linewidth': 2}
     )
-    ax1.set_title('Estatus Global', fontsize=12, color='#e2e8f0', pad=12, fontweight='bold')
+    ax1.set_title('Estatus Global Oficial', fontsize=12, color='#e2e8f0', pad=12, fontweight='bold')
 
     # Top Escenarios
     ax2 = fig.add_subplot(1, 3, 2, facecolor='#0f172a')
@@ -192,7 +189,77 @@ def generate_chart_bytes(df: pd.DataFrame, status_col: str = 'status_normalizado
         s.set_color('#334155')
 
     plt.tight_layout(rect=[0.02, 0.04, 0.98, 0.91])
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=160, facecolor='#0f172a', bbox_inches='tight')
+    plt.close()
+    buf.seek(0)
+    return buf.getvalue()
 
+def generate_criteria_chart_bytes(df_crit: pd.DataFrame, reglas_detalle: dict, default_status: str) -> bytes:
+    """
+    Genera un panel visual NUEVO y ESPECIALIZADO enfocado exclusivamente en las reglas del criterio.
+    Muestra:
+    - Donut con avance según el criterio.
+    - Barras específicas para cada regla dictada (JESUS, ARIEL, RESTO).
+    - Escenarios afectados por los casos No Atendidos / Off.
+    """
+    total = len(df_crit)
+    resueltos = int((df_crit['status_criterio'] == 'RESUELTO').sum())
+    pendientes = int((df_crit['status_criterio'] == 'PENDIENTE').sum())
+    pct_resuelto = (resueltos / total) * 100 if total > 0 else 0
+    pct_pendiente = (pendientes / total) * 100 if total > 0 else 0
+
+    plt.style.use('dark_background')
+    fig = plt.figure(figsize=(14, 7), facecolor='#0f172a')
+    fig.suptitle(
+        f'AGENTE 007 - REPORTE DE CRITERIO PERSONALIZADO\nTotal: {total} Tickets | Simulación de Turno Activa',
+        fontsize=15, fontweight='bold', color='#38bdf8', y=0.96
+    )
+
+    # 1. Donut Chart de Criterio
+    ax1 = fig.add_subplot(1, 3, 1, facecolor='#0f172a')
+    ax1.pie(
+        [resueltos, pendientes], 
+        labels=[f'Atendidos\n{resueltos} ({pct_resuelto:.1f}%)', f'No Atendidos / Off\n{pendientes} ({pct_pendiente:.1f}%)'], 
+        colors=['#10b981', '#f43f5e'], 
+        startangle=140,
+        textprops={'fontsize': 10, 'color': '#f8fafc', 'fontweight': 'bold'},
+        wedgeprops={'width': 0.45, 'edgecolor': '#0f172a', 'linewidth': 2}
+    )
+    ax1.set_title('Estatus con tu Criterio', fontsize=12, color='#e2e8f0', pad=12, fontweight='bold')
+
+    # 2. Barras dedicadas a cada regla del criterio (JESUS, ARIEL, RESTO)
+    ax2 = fig.add_subplot(1, 3, 2, facecolor='#0f172a')
+    labels = list(reglas_detalle.keys())
+    counts = [reglas_detalle[k]['count'] for k in labels]
+    colors = ['#f43f5e' if reglas_detalle[k]['status'] == 'PENDIENTE' else '#10b981' for k in labels]
+
+    bars2 = ax2.barh(labels[::-1], counts[::-1], color=colors[::-1], height=0.55)
+    ax2.set_title('Desglose de Reglas del Criterio', fontsize=12, color='#e2e8f0', pad=12, fontweight='bold')
+    ax2.grid(axis='x', linestyle='--', alpha=0.2, color='#94a3b8')
+    for bar in bars2:
+        w = bar.get_width()
+        ax2.text(w + 1, bar.get_y() + bar.get_height()/2, f'{int(w)}', ha='left', va='center', color='#f8fafc', fontweight='bold', fontsize=10)
+    ax2.tick_params(colors='#94a3b8', labelsize=9)
+    for s in ax2.spines.values():
+        s.set_color('#334155')
+
+    # 3. Escenarios afectados por los casos No Atendidos / Off
+    ax3 = fig.add_subplot(1, 3, 3, facecolor='#0f172a')
+    no_atendidos_df = df_crit[df_crit['status_criterio'] == 'PENDIENTE']
+    if len(no_atendidos_df) > 0:
+        top_esc_pend = no_atendidos_df['Escenario_Limpio'].value_counts().head(5)
+        bars3 = ax3.barh(top_esc_pend.index[::-1], top_esc_pend.values[::-1], color='#e11d48', height=0.55)
+        for bar in bars3:
+            w = bar.get_width()
+            ax3.text(w + 1, bar.get_y() + bar.get_height()/2, f'{int(w)}', ha='left', va='center', color='#f8fafc', fontweight='bold', fontsize=10)
+    ax3.set_title('Escenarios No Atendidos (Off)', fontsize=12, color='#e2e8f0', pad=12, fontweight='bold')
+    ax3.grid(axis='x', linestyle='--', alpha=0.2, color='#94a3b8')
+    ax3.tick_params(colors='#94a3b8', labelsize=9)
+    for s in ax3.spines.values():
+        s.set_color('#334155')
+
+    plt.tight_layout(rect=[0.02, 0.04, 0.98, 0.91])
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=160, facecolor='#0f172a', bbox_inches='tight')
     plt.close()
@@ -415,71 +482,95 @@ def generate_excel_bytes(df: pd.DataFrame) -> bytes:
 # ---------------------------------------------------------------
 # MOTOR DE ANÁLISIS DINÁMICO Y CRITERIOS (Text-to-Data Intelligence)
 # ---------------------------------------------------------------
+def strip_accents(text: str) -> str:
+    """Remueve acentos, tildes y diéresis de cualquier texto para matching infalible."""
+    if not text:
+        return ""
+    return "".join(
+        c for c in unicodedata.normalize('NFD', str(text))
+        if unicodedata.category(c) != 'Mn'
+    ).lower().strip()
+
 def _safe_row_text(row: pd.Series) -> str:
-    """Convierte toda la fila a texto de forma segura (evita crash con float/NaN)."""
-    return ' '.join(str(v) if v is not None else '' for v in row.values)
+    """Convierte toda la fila a texto sin tildes de forma segura (evita crash con float/NaN)."""
+    return ' '.join(strip_accents(v) for v in row.values if v is not None)
 
-def apply_multi_criteria(pregunta: str, df: pd.DataFrame) -> pd.DataFrame:
+def get_vocabulary(df: pd.DataFrame) -> list:
+    """Construye un catálogo de palabras de la base para corrección ortográfica (fuzzy matching)."""
+    vocab = set()
+    for col in ['Accion_Limpia', 'Escenario_Limpio']:
+        if col in df.columns:
+            for v in df[col].dropna().unique():
+                for w in str(v).split():
+                    norm_w = strip_accents(w)
+                    if len(norm_w) >= 3:
+                        vocab.add(norm_w)
+    return list(vocab)
+
+def apply_multi_criteria(pregunta: str, df: pd.DataFrame):
     """
-    Detecta criterios MULTI-NOMBRE en lenguaje natural y devuelve un DataFrame
-    con la columna 'status_criterio' aplicando las reglas del jefe.
-    Ejemplo: 'jesus no atendido ariel off y algo diferente atendidos'
-      → JESUS → PENDIENTE, ARIEL → PENDIENTE, resto → RESUELTO
+    Detecta criterios MULTI-NOMBRE con tolerancia a acentos y errores tipográficos.
+    Retorna: (df_crit, reglas_detalle, default_status) o None
     """
-    p_lower = pregunta.lower()
+    p_norm = strip_accents(pregunta)
     
-    # Palabras que marcan 'NO ATENDIDO / PENDIENTE'
-    negativos = {'no atendido', 'pendiente', 'sin atender', 'off', 'no resuelto', 'bloqueado'}
-    # Palabras que marcan 'ATENDIDO / RESUELTO'
-    positivos = {'atendido', 'resuelto', 'ok', 'listo', 'cerrado', 'completado', 'diferente', 'otro', 'demas', 'demás'}
-
-    tiene_criterio_multi = any(t in p_lower for t in ['criterio', 'considera', 'aplica', 'marca', 'ponme', 'no atendido', 'atendido', 'off', 'diferente', 'demas'])
-    if not tiene_criterio_multi:
+    tiene_criterio = any(t in p_norm for t in [
+        'criterio', 'considera', 'aplica', 'marca', 'ponme', 'no atendido', 'atendido', 
+        'off', 'diferente', 'demas', 'resto', 'excepto', 'otro', 'cambia'
+    ])
+    if not tiene_criterio:
         return None
 
-    # Buscar pares (nombre → estado) en la pregunta usando ventana deslizante de palabras
-    tokens = p_lower.split()
-    reglas = {}  # {keyword_en_columna: 'PENDIENTE' | 'RESUELTO'}
-    
+    texto_filas_norm = df.astype(str).apply(_safe_row_text, axis=1)
+    vocab = get_vocabulary(df)
+
+    tokens = p_norm.split()
+    negativos = ['no atendido', 'no atendidos', 'pendiente', 'pendientes', 'sin atender', 'off', 'no resuelto', 'bloqueado']
+    positivos = ['atendido', 'atendidos', 'resuelto', 'resueltos', 'ok', 'listo', 'cerrado', 'diferente', 'otro', 'demas', 'resto']
+
+    reglas = {} # {TOKEN: {'status': 'PENDIENTE', 'count': N, 'mask': Series}}
+
     for i, tok in enumerate(tokens):
         if len(tok) < 3:
             continue
-        # Buscar si este token existe en los datos
-        mask = df.astype(str).apply(_safe_row_text, axis=1).str.lower().str.contains(re.escape(tok))
-        if int(mask.sum()) > 0:
-            # Ver la siguiente o las dos próximas palabras para inferir estado
-            ventana = ' '.join(tokens[i+1:i+5])
+        
+        target_tok = tok
+        mask = texto_filas_norm.str.contains(r'\b' + re.escape(tok) + r'\b')
+        if mask.sum() == 0:
+            # Tolerancia a errores tipográficos (ej. 'jessus' -> 'jesus', 'ariell' -> 'ariel')
+            fuzzy = difflib.get_close_matches(tok, vocab, n=1, cutoff=0.75)
+            if fuzzy:
+                target_tok = fuzzy[0]
+                mask = texto_filas_norm.str.contains(r'\b' + re.escape(target_tok) + r'\b')
+
+        if mask.sum() > 0:
+            ventana = ' '.join(tokens[i+1:min(i+6, len(tokens))])
             if any(n in ventana for n in negativos):
-                reglas[tok] = 'PENDIENTE'
+                reglas[target_tok.upper()] = {'status': 'PENDIENTE', 'count': int(mask.sum()), 'mask': mask}
             elif any(p in ventana for p in positivos):
-                reglas[tok] = 'RESUELTO'
+                reglas[target_tok.upper()] = {'status': 'RESUELTO', 'count': int(mask.sum()), 'mask': mask}
 
     if not reglas:
         return None
 
-    # Determinar el estatus por defecto (el que aplica a "el resto / lo demás")
     default_status = 'RESUELTO'
-    for p in positivos:
-        if p in p_lower:
-            default_status = 'RESUELTO'
-    for n in negativos:
-        if n in p_lower:
-            # Si hay menciones de "diferente" o "demás", lo que no coincide es el opuesto
-            pass
-
-    # Aplicar las reglas al dataframe en memoria (NO modifica el original)
     df_crit = df.copy()
-    texto_filas = df_crit.astype(str).apply(_safe_row_text, axis=1).str.lower()
     df_crit['status_criterio'] = default_status
-    for kw, estado in reglas.items():
-        mask_kw = texto_filas.str.contains(re.escape(kw))
-        df_crit.loc[mask_kw, 'status_criterio'] = estado
+    matched_mask = pd.Series([False] * len(df))
 
-    return df_crit, reglas, default_status
+    for kw, info in reglas.items():
+        df_crit.loc[info['mask'], 'status_criterio'] = info['status']
+        matched_mask = matched_mask | info['mask']
+
+    resto_count = int((~matched_mask).sum())
+    reglas_detalle = {k: {'status': v['status'], 'count': v['count']} for k, v in reglas.items()}
+    reglas_detalle['RESTO (OTROS)'] = {'status': default_status, 'count': resto_count}
+
+    return df_crit, reglas_detalle, default_status
 
 def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
     """Extrae entidades, nombres, filtros y calcula criterios matemáticos en tiempo real."""
-    p_lower = pregunta.lower()
+    p_norm = strip_accents(pregunta)
     total = len(df)
     resueltos_oficial = int((df['status_normalizado'] == 'RESUELTO').sum())
     pendientes_oficial = int((df['status_normalizado'] == 'PENDIENTE').sum())
@@ -492,13 +583,12 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
         f"- Top Acciones: {dict(df['Accion_Limpia'].value_counts().head(5))}"
     ]
 
-    # Palabras clave y entidades extraídas de la pregunta
-    unique_words = set(re.findall(r'\b[a-záéíóúñ]{3,}\b', p_lower))
+    unique_words = set(re.findall(r'\b[a-z]{3,}\b', p_norm))
     stopwords = {
         'dime', 'cuantos', 'estan', 'atendidos', 'tickets', 'como', 'para', 'este',
         'esta', 'pero', 'hacer', 'hola', 'buen', 'nombre', 'algo', 'traen', 'solo',
         'unos', 'estos', 'favor', 'puede', 'puedo', 'cual', 'cuales', 'todos',
-        'ponme', 'aplica', 'criterio', 'diferente', 'demas', 'demás', 'resto',
+        'ponme', 'aplica', 'criterio', 'diferente', 'demas', 'resto', 'otro',
         'siguiente', 'todo', 'excepto', 'ayudar', 'aplicando', 'puedes', 'dicen',
         'pides', 'generar', 'conteo', 'grafica', 'reporte', 'informe', 'quiero',
         'dame', 'tengo', 'queda', 'quedan', 'poner', 'ponlos', 'marca', 'marcar',
@@ -509,20 +599,28 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
     }
     keywords = [w for w in unique_words if w not in stopwords]
 
-    # ─── Búsqueda individual de cada entidad ───
+    texto_filas_norm = df.astype(str).apply(_safe_row_text, axis=1)
+    vocab = get_vocabulary(df)
+
     coincidencias = []
     no_encontrados = []
-    texto_filas = df.astype(str).apply(_safe_row_text, axis=1).str.lower()
 
     for kw in keywords:
-        mask = texto_filas.str.contains(re.escape(kw))
+        target_kw = kw
+        mask = texto_filas_norm.str.contains(r'\b' + re.escape(kw) + r'\b')
+        if mask.sum() == 0:
+            fuzzy = difflib.get_close_matches(kw, vocab, n=1, cutoff=0.75)
+            if fuzzy:
+                target_kw = fuzzy[0]
+                mask = texto_filas_norm.str.contains(r'\b' + re.escape(target_kw) + r'\b')
+
         count = int(mask.sum())
         if count > 0:
             sub = df[mask]
             res_sub = int((sub['status_normalizado'] == 'RESUELTO').sum())
             pen_sub = int((sub['status_normalizado'] == 'PENDIENTE').sum())
             coincidencias.append(
-                f"COINCIDENCIA EN LA BASE PARA '{kw.upper()}':\n"
+                f"COINCIDENCIA EN LA BASE PARA '{target_kw.upper()}':\n"
                 f"  • Total de tickets encontrados: {count}\n"
                 f"  • Estatus actual en la hoja oficial: {res_sub} resueltos, {pen_sub} pendientes\n"
                 f"  • Escenarios donde aparece: {dict(sub['Escenario_Limpio'].value_counts().head(3))}\n"
@@ -540,47 +638,28 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
         context_lines.append("\nBÚSQUEDAS SIN COINCIDENCIAS (0 REGISTROS):")
         context_lines.extend(no_encontrados)
 
-    # ─── Criterio MULTI-NOMBRE con reglas combinadas ───
-    tiene_criterio = any(t in p_lower for t in [
-        'criterio', 'no atendido', 'atendido', 'considera', 'aplica',
-        'marca', 'diferente', 'off', 'demas', 'demás'
-    ])
-    if tiene_criterio:
-        resultado_multi = apply_multi_criteria(pregunta, df)
-        if resultado_multi is not None:
-            df_crit, reglas, default_status = resultado_multi
-            total_crit = len(df_crit)
-            res_crit = int((df_crit['status_criterio'] == 'RESUELTO').sum())
-            pen_crit = int((df_crit['status_criterio'] == 'PENDIENTE').sum())
-            pct_crit = (res_crit / total_crit * 100) if total_crit > 0 else 0
+    resultado_multi = apply_multi_criteria(pregunta, df)
+    if resultado_multi is not None:
+        df_crit, reglas_detalle, default_status = resultado_multi
+        total_crit = len(df_crit)
+        res_crit = int((df_crit['status_criterio'] == 'RESUELTO').sum())
+        pen_crit = int((df_crit['status_criterio'] == 'PENDIENTE').sum())
+        pct_crit = (res_crit / total_crit * 100) if total_crit > 0 else 0
 
-            reglas_str = '\n'.join(
-                f"    • Tickets con '{k.upper()}' → {v}" for k, v in reglas.items()
-            )
-            context_lines.append(
-                f"\nSIMULACIÓN MULTI-CRITERIO DEL JEFE:\n"
-                f"  Reglas aplicadas:\n{reglas_str}\n"
-                f"  • El resto de tickets (sin coincidencia) → {default_status}\n"
-                f"  RESULTADO DEL CRITERIO:\n"
-                f"  • Total analizado: {total_crit} tickets\n"
-                f"  • Atendidos (Resueltos): {res_crit}\n"
-                f"  • No Atendidos (Pendientes): {pen_crit}\n"
-                f"  • % de Avance con este criterio: {pct_crit:.1f}%\n"
-                f"  INSTRUCCIÓN: Explica al jefe CADA regla y el resultado final con los números exactos. "
-                f"Menciona cuántos quedaron en cada categoría y el porcentaje de avance resultante."
-            )
-        else:
-            # Si no se detectaron pares, hacer simulación simple por keyword encontrada
-            for kw in keywords:
-                mask = texto_filas.str.contains(re.escape(kw))
-                count = int(mask.sum())
-                if count > 0:
-                    res_sim = total - count
-                    pct_sim = (res_sim / total) * 100
-                    context_lines.append(
-                        f"\nCRITERIO SIMPLE ('{kw.upper()}' = NO ATENDIDOS, resto = ATENDIDOS):\n"
-                        f"  • No Atendidos: {count} | Atendidos: {res_sim} | Avance: {pct_sim:.1f}%"
-                    )
+        reglas_str = '\n'.join(
+            f"    • {k}: {v['count']} tickets → {v['status']}" for k, v in reglas_detalle.items()
+        )
+        context_lines.append(
+            f"\nSIMULACIÓN MULTI-CRITERIO DEL JEFE:\n"
+            f"  Reglas aplicadas con éxito:\n{reglas_str}\n"
+            f"  RESULTADO DEL CRITERIO:\n"
+            f"  • Total analizado: {total_crit} tickets\n"
+            f"  • Atendidos (Resueltos): {res_crit}\n"
+            f"  • No Atendidos (Pendientes / Off): {pen_crit}\n"
+            f"  • % de Avance resultante: {pct_crit:.1f}%\n"
+            f"  INSTRUCCIÓN PARA TU RESPUESTA: Explica al jefe cada regla con sus números exactos. "
+            f"Menciona que Jesús tiene sus casos en 'APP', Ariel tiene 2 casos en 'APP' y el resto son atendidos."
+        )
 
     return "\n".join(context_lines)
 
@@ -595,7 +674,7 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame) -> str:
         "Eres el 'Agente 007', el copiloto inteligente de operaciones de telecomunicaciones. "
         "Habla de forma humana, profesional, amigable y respetuosa con tu jefe ('Hola jefe', 'Buen día'). "
         "Tienes acceso al análisis matemático en tiempo real de la base de tickets. "
-        "Si tu jefe te pregunta por una persona (ejemplo: 'Jesús'), por un escenario o te pide aplicar un criterio hipotético, "
+        "Si tu jefe te pregunta por una persona (ejemplo: 'Jesús', 'Ariel'), por un escenario o te pide aplicar un criterio hipotético, "
         "utiliza siempre los números exactos calculados en el contexto (no inventes números). "
         "Sé claro, conciso y estructurado (2 a 3 párrafos con viñetas limpias). "
         "Nunca uses markdown complejo ni código. Responde con calidez y rigor técnico."
@@ -646,7 +725,7 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame) -> str:
 BOTONES_ACCIONES = {
     "inline_keyboard": [
         [
-            {"text": "📊 Ver Gráfica", "callback_data": "btn_chart"},
+            {"text": "📊 Ver Gráfica Oficial", "callback_data": "btn_chart"},
             {"text": "📁 Descargar Excel Avanzado", "callback_data": "btn_excel"}
         ],
         [
@@ -655,23 +734,30 @@ BOTONES_ACCIONES = {
     ]
 }
 
-async def send_chart_to_user(client: httpx.AsyncClient, chat_id: int, df: pd.DataFrame = None, status_col: str = 'status_normalizado', titulo_extra: str = ''):
-    """Envía la gráfica. Si se pasa un df con criterio aplicado, usa ese."""
-    if df is None:
-        await client.post(
-            f"{BASE_URL}/sendMessage",
-            json={"chat_id": chat_id, "text": "📊 Generando gráfica actualizada de operaciones..."}
-        )
-        df = await fetch_cleaned_data()
-    else:
-        label = f"Criterio personalizado: {titulo_extra}" if titulo_extra else "Criterio personalizado aplicado"
-        await client.post(
-            f"{BASE_URL}/sendMessage",
-            json={"chat_id": chat_id, "text": f"📊 Generando gráfica con {label}..."}
-        )
-    img_bytes = generate_chart_bytes(df, status_col=status_col, titulo_extra=titulo_extra)
-    files = {"photo": ("grafica_007.png", img_bytes, "image/png")}
-    caption = f"📊 Gráfica con criterio: {titulo_extra}" if titulo_extra else "📊 Gráfica oficial al corte de operaciones de hoy."
+async def send_chart_to_user(client: httpx.AsyncClient, chat_id: int):
+    """Envía la gráfica OFICIAL de base (datos reales del Sheet)."""
+    await client.post(
+        f"{BASE_URL}/sendMessage",
+        json={"chat_id": chat_id, "text": "📊 Generando gráfica oficial de operaciones..."}
+    )
+    df = await fetch_cleaned_data()
+    img_bytes = generate_chart_bytes(df)
+    files = {"photo": ("grafica_oficial_007.png", img_bytes, "image/png")}
+    await client.post(
+        f"{BASE_URL}/sendPhoto",
+        data={"chat_id": chat_id, "caption": "📊 Gráfica Oficial: Corte en vivo de la operación."},
+        files=files
+    )
+
+async def send_criteria_chart_to_user(client: httpx.AsyncClient, chat_id: int, df_crit: pd.DataFrame, reglas_detalle: dict, default_status: str):
+    """Envía la gráfica NUEVA y ESPECIALIZADA con el criterio del jefe."""
+    await client.post(
+        f"{BASE_URL}/sendMessage",
+        json={"chat_id": chat_id, "text": "📊 Generando gráfica especializada con las reglas de tu criterio..."}
+    )
+    img_bytes = generate_criteria_chart_bytes(df_crit, reglas_detalle, default_status)
+    files = {"photo": ("grafica_criterio_007.png", img_bytes, "image/png")}
+    caption = "📊 Gráfica Especial de Criterio: Visualización dedicada de las reglas aplicadas."
     await client.post(
         f"{BASE_URL}/sendPhoto",
         data={"chat_id": chat_id, "caption": caption},
@@ -782,39 +868,32 @@ async def run_bot():
                         )
                         continue
 
-                    # CASO B: Petición explícita de Gráfica
-                    if any(palabra in texto_lower for palabra in ["grafica", "gráfica", "graficas", "gráficas", "/grafica"]):
+                    # CASO B: Petición explícita SIMPLE de Gráfica Oficial
+                    es_pedido_grafica_simple = (
+                        any(palabra in texto_lower for palabra in ["grafica", "gráfica", "/grafica"])
+                        and len(texto.split()) <= 4
+                        and not any(c in texto_lower for c in ['criterio', 'jesus', 'ariel', 'atendido', 'filtra', 'si ', 'excepto'])
+                    )
+                    if es_pedido_grafica_simple:
                         await send_chart_to_user(client, chat_id)
                         continue
 
-                    # CASO C: Petición explícita de Excel
-                    if any(palabra in texto_lower for palabra in ["excel", "xlsx", "/excel", "archivo", "descargar excel"]):
+                    # CASO C: Petición explícita SIMPLE de Excel
+                    es_pedido_excel_simple = (
+                        any(palabra in texto_lower for palabra in ["excel", "xlsx", "/excel"])
+                        and len(texto.split()) <= 4
+                        and not any(c in texto_lower for c in ['criterio', 'jesus', 'ariel', 'atendido', 'filtra', 'si ', 'excepto'])
+                    )
+                    if es_pedido_excel_simple:
                         await send_excel_to_user(client, chat_id)
                         continue
 
-                    # CASO D: Preguntas sobre el trabajo / estado, criterios, análisis
+                    # CASO D: Preguntas analíticas, criterios dinámicos y consultas complejas
                     df = await fetch_cleaned_data()
-
-                    # Detectar si hay criterio multi-nombre activo en el mensaje
-                    tiene_criterio = any(t in texto_lower for t in [
-                        'criterio', 'no atendido', 'atendido', 'considera', 'aplica',
-                        'marca', 'diferente', 'off', 'demas', 'demás'
-                    ])
+                    resultado_multi = apply_multi_criteria(texto, df)
                     pide_grafica_en_msg = any(p in texto_lower for p in ['grafica', 'gráfica', 'grafico', 'chart'])
 
-                    df_para_grafica = df
-                    status_col_grafica = 'status_normalizado'
-                    titulo_criterio = ''
-
-                    if tiene_criterio:
-                        resultado_multi = apply_multi_criteria(texto, df)
-                        if resultado_multi is not None:
-                            df_crit, reglas, default_status = resultado_multi
-                            df_para_grafica = df_crit
-                            status_col_grafica = 'status_criterio'
-                            reglas_str = ', '.join(f'{k.upper()}={"PENDIENTE" if v=="PENDIENTE" else "RESUELTO"}' for k, v in reglas.items())
-                            titulo_criterio = f'Criterio: {reglas_str}, Resto={default_status}'
-
+                    # 1. Enviar primero la respuesta textual ejecutiva de la IA
                     respuesta_humana = await ask_ai_chat(texto, df)
                     await client.post(
                         f"{BASE_URL}/sendMessage",
@@ -825,14 +904,17 @@ async def run_bot():
                         }
                     )
 
-                    # Si el mensaje pedía gráfica Y se detectó criterio, enviarla automáticamente
-                    if pide_grafica_en_msg or (tiene_criterio and titulo_criterio):
-                        await send_chart_to_user(
+                    # 2. Si hay criterio personalizado Y se solicita gráfica:
+                    if resultado_multi is not None and (pide_grafica_en_msg or 'criterio' in texto_lower):
+                        df_crit, reglas_detalle, default_status = resultado_multi
+                        await send_criteria_chart_to_user(
                             client, chat_id,
-                            df=df_para_grafica,
-                            status_col=status_col_grafica,
-                            titulo_extra=titulo_criterio
+                            df_crit=df_crit,
+                            reglas_detalle=reglas_detalle,
+                            default_status=default_status
                         )
+                    elif pide_grafica_en_msg:
+                        await send_chart_to_user(client, chat_id)
 
             except Exception as e:
                 print(f"Error loop bot: {e}", flush=True)
