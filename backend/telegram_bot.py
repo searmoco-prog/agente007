@@ -434,6 +434,7 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
 
     coincidencias = []
     criterios_simulados = []
+    no_encontrados = []
 
     for kw in keywords:
         # Búsqueda en todo el contenido de la fila
@@ -464,10 +465,17 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
                     f"  • Efectividad / Avance simulado: {pct_sim:.1f}%\n"
                     f"  • INSTRUCCIÓN PARA TU RESPUESTA: Explica detalladamente al jefe este cálculo con los números exactos."
                 )
+        else:
+            if len(kw) >= 4:
+                no_encontrados.append(f"• '{kw.capitalize()}': 0 tickets encontrados en la base.")
 
     if coincidencias:
         context_lines.append("\nANÁLISIS DINÁMICO EN TIEMPO REAL:")
         context_lines.extend(coincidencias)
+
+    if no_encontrados:
+        context_lines.append("\nBÚSQUEDAS SIN COINCIDENCIAS (0 REGISTROS):")
+        context_lines.extend(no_encontrados)
 
     if criterios_simulados:
         context_lines.append("\nSIMULACIÓN DE CRITERIO:")
