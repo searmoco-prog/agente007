@@ -142,6 +142,11 @@ def generate_dynamic_custom_excel(pregunta: str, df: pd.DataFrame) -> tuple:
         filename = "Reporte_Personalizado_007.xlsx"
 
     wb = openpyxl.Workbook()
+
+    # ✅ Forzar recálculo automático al abrir el archivo en CUALQUIER dispositivo
+    # (Excel iPhone, Android, Windows, Mac, Excel Online, Google Sheets — todos)
+    wb.calculation.calcMode = "auto"
+    wb.calculation.fullCalcOnLoad = True
     
     # Estilos
     font_titulo = Font(name="Calibri", size=15, bold=True, color="FFFFFF")

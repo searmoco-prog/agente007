@@ -277,6 +277,10 @@ def generate_excel_bytes(df: pd.DataFrame, status_col: str = 'status_normalizado
     - Cruces y agregaciones consolidadas.
     """
     wb = openpyxl.Workbook()
+
+    # ✅ Forzar recálculo automático al abrir en cualquier dispositivo
+    wb.calculation.calcMode = "auto"
+    wb.calculation.fullCalcOnLoad = True
     
     # Fuentes y estilos
     font_titulo = Font(name="Calibri", size=15, bold=True, color="FFFFFF")
