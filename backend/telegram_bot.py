@@ -175,20 +175,31 @@ def generate_excel_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue()
 
 async def call_ai_analysis(prompt_usuario: str, df: pd.DataFrame) -> str:
-    """Ejecuta razonamiento con Groq (con fallback a Cerebras) si las claves están configuradas."""
+    """Ejecuta razonamiento con Groq / Cerebras para responder al supervisor."""
     total = len(df)
     resueltos = int((df['status_normalizado'] == 'RESUELTO').sum())
     pendientes = int((df['status_normalizado'] == 'PENDIENTE').sum())
+    pct_resuelto = (resueltos / total * 100) if total > 0 else 0
     top_esc = df['Escenario_Limpio'].value_counts().head(3).to_dict()
+    top_acc = df['Accion_Limpia'].value_counts().head(3).to_dict()
+
+    system_prompt = (
+        "Eres el 'Agente 007', un arquitecto de operaciones de Telecomunicaciones de élite y copiloto del supervisor. "
+        "Tu trabajo es responder a la pregunta del supervisor de forma clara, profesional, ejecutiva y resolutiva. "
+        "Usa los datos reales que te proporciono. "
+        "Regla de formato: Responde usando formato de texto amigable con viñetas y emojis. "
+        "NO uses markdown complejo ni código."
+    )
 
     contexto = (
-        f"Datos operativos en vivo de Telecomunicaciones:\n"
-        f"- Total tickets: {total}\n"
-        f"- Resueltos: {resueltos} ({(resueltos/total)*100:.1f}%)\n"
-        f"- Pendientes: {pendientes} ({(pendientes/total)*100:.1f}%)\n"
-        f"- Top problemas: {top_esc}\n\n"
-        f"Pregunta del supervisor: {prompt_usuario}\n"
-        f"Instrucción: Responde en español como el 'Agente 007', de forma ejecutiva, técnica, concisa y profesional."
+        f"DATOS EN VIVO DE GOOGLE SHEETS:\n"
+        f"• Total de tickets en base: {total}\n"
+        f"• Resueltos: {resueltos} ({pct_resuelto:.1f}%)\n"
+        f"• Pendientes: {pendientes} ({100 - pct_resuelto:.1f}%)\n"
+        f"• Top 3 Escenarios: {top_esc}\n"
+        f"• Top 3 Acciones: {top_acc}\n\n"
+        f"Pregunta del supervisor: \"{prompt_usuario}\"\n\n"
+        f"Responde directamente a su pregunta dando el estado del turno, qué significa este avance y una recomendación práctica."
     )
 
     # 1. Intentar Groq
@@ -196,15 +207,22 @@ async def call_ai_analysis(prompt_usuario: str, df: pd.DataFrame) -> str:
         try:
             from groq import AsyncGroq
             client = AsyncGroq(api_key=GROQ_API_KEY)
-            chat_completion = await client.chat.completions.create(
-                messages=[{"role": "user", "content": contexto}],
-                model="llama-3.3-70b-versatile",
-                temperature=0.3,
-                max_tokens=400
-            )
-            return chat_completion.choices[0].message.content
+            for model_name in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+                try:
+                    chat_completion = await client.chat.completions.create(
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": contexto}
+                        ],
+                        model=model_name,
+                        temperature=0.4,
+                        max_tokens=600
+                    )
+                    return chat_completion.choices[0].message.content
+                except Exception as m_err:
+                    print(f"Fallo modelo {model_name} en Groq: {m_err}", flush=True)
         except Exception as e:
-            print(f"Aviso: Falló Groq, intentando respaldo: {e}")
+            print(f"Aviso: Falló cliente Groq: {e}", flush=True)
 
     # 2. Intentar Cerebras
     if CEREBRAS_API_KEY:
@@ -212,23 +230,28 @@ async def call_ai_analysis(prompt_usuario: str, df: pd.DataFrame) -> str:
             from cerebras.cloud.sdk import AsyncCerebras
             client = AsyncCerebras(api_key=CEREBRAS_API_KEY)
             resp = await client.chat.completions.create(
-                messages=[{"role": "user", "content": contexto}],
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": contexto}
+                ],
                 model="llama3.1-70b",
-                temperature=0.3,
-                max_tokens=400
+                temperature=0.4,
+                max_tokens=600
             )
             return resp.choices[0].message.content
         except Exception as e:
-            print(f"Aviso: Falló Cerebras: {e}")
+            print(f"Aviso: Falló Cerebras: {e}", flush=True)
 
-    # Resumen automático si no hay claves aún
+    # Resumen estructurado por defecto si no hay IA
     return (
-        f"📊 *CORTE DE OPERACIONES EN VIVO (AGENTE 007)*\n\n"
-        f"• *Total Tickets:* `{total}`\n"
-        f"• ✅ *Resueltos:* `{resueltos}` ({(resueltos/total)*100:.1f}%)\n"
-        f"• ⏳ *Pendientes:* `{pendientes}` ({(pendientes/total)*100:.1f}%)\n\n"
-        f"🚨 *Cuello de Botella:* El 81% de los casos son incidencias de *APP* y *Portabilidad*.\n"
-        f"⚙️ *Acción Principal:* Regularización de datos."
+        f"📊 CORTE DE OPERACIONES EN VIVO (AGENTE 007)\n\n"
+        f"¡Hola! Al corte de este momento en la operación:\n"
+        f"• Total Tickets: {total}\n"
+        f"• Resueltos: {resueltos} ({pct_resuelto:.1f}%)\n"
+        f"• Pendientes: {pendientes} ({100 - pct_resuelto:.1f}%)\n\n"
+        f"🚨 Cuello de Botella: El 81% de los casos son incidencias de APP ({top_esc.get('APP', 0)}) y Portabilidad ({top_esc.get('PORTABILIDAD', 0)}).\n"
+        f"⚙️ Acción Dominante: Regularización de datos ({list(top_acc.values())[0] if top_acc else 0} casos).\n\n"
+        f"Te adjunto la gráfica y el archivo Excel consolidado a continuación."
     )
 
 async def run_bot():
@@ -277,10 +300,10 @@ async def run_bot():
                         )
                         continue
 
-                    # 2. Reporte completo (Gráfica + Análisis IA + Excel)
+                    # 2. Reporte completo (Análisis IA + Gráfica + Excel)
                     await client.post(
                         f"{BASE_URL}/sendMessage",
-                        json={"chat_id": chat_id, "text": "🕵️‍♂️ *Agente 007:* Procesando corte en vivo y generando análisis...", "parse_mode": "Markdown"}
+                        json={"chat_id": chat_id, "text": "🕵️‍♂️ Agente 007 consultando datos en vivo y analizando con IA..."}
                     )
 
                     df = await fetch_cleaned_data()
@@ -288,19 +311,25 @@ async def run_bot():
                     excel_bytes = generate_excel_bytes(df)
                     ai_text = await call_ai_analysis(text, df)
 
-                    # Enviar Foto con Análisis
+                    # A) ENVIAR PRIMERO LA RESPUESTA DE LA IA EN MENSAJE DEDICADO
+                    await client.post(
+                        f"{BASE_URL}/sendMessage",
+                        json={"chat_id": chat_id, "text": ai_text}
+                    )
+
+                    # B) ENVIAR LA GRÁFICA VISUAL
                     files_photo = {"photo": ("reporte.png", img_bytes, "image/png")}
                     await client.post(
                         f"{BASE_URL}/sendPhoto",
-                        data={"chat_id": chat_id, "caption": ai_text, "parse_mode": "Markdown"},
+                        data={"chat_id": chat_id, "caption": "📊 Gráfica de distribución operativa al corte."},
                         files=files_photo
                     )
 
-                    # Enviar Excel adjunto inmediatamente
+                    # C) ENVIAR EL ARCHIVO EXCEL DESCARGABLE
                     files_doc = {"document": ("Reporte_Telecom_Consolidado_007.xlsx", excel_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
                     await client.post(
                         f"{BASE_URL}/sendDocument",
-                        data={"chat_id": chat_id, "caption": "📁 *Excel adjunto:* Base de datos con los 258 tickets y cruces normalizados.", "parse_mode": "Markdown"},
+                        data={"chat_id": chat_id, "caption": "📁 Base consolidada con 258 tickets y cruces limpios."},
                         files=files_doc
                     )
 
