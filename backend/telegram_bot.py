@@ -406,31 +406,96 @@ def generate_excel_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue()
 
 # ---------------------------------------------------------------
+# MOTOR DE ANÁLISIS DINÁMICO Y CRITERIOS (Text-to-Data Intelligence)
+# ---------------------------------------------------------------
+def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
+    """Extrae entidades, nombres, filtros y calcula criterios matemáticos en tiempo real."""
+    p_lower = pregunta.lower()
+    total = len(df)
+    resueltos_oficial = int((df['status_normalizado'] == 'RESUELTO').sum())
+    pendientes_oficial = int((df['status_normalizado'] == 'PENDIENTE').sum())
+
+    context_lines = [
+        f"BASE OFICIAL ACTUAL ({total} tickets):",
+        f"- Resueltos oficiales: {resueltos_oficial} ({resueltos_oficial/total*100:.1f}%)",
+        f"- Pendientes oficiales: {pendientes_oficial} ({pendientes_oficial/total*100:.1f}%)",
+        f"- Top Escenarios: {dict(df['Escenario_Limpio'].value_counts().head(5))}",
+        f"- Top Acciones: {dict(df['Accion_Limpia'].value_counts().head(5))}"
+    ]
+
+    # Palabras clave y entidades extraídas de la pregunta
+    unique_words = set(re.findall(r'\b[a-záéíóúñ]{3,}\b', p_lower))
+    stopwords = {
+        'dime', 'cuantos', 'estan', 'atendidos', 'tickets', 'como', 'para', 'este', 
+        'esta', 'pero', 'hacer', 'hola', 'buen', 'nombre', 'algo', 'traen', 'solo', 
+        'unos', 'unos', 'estos', 'favor', 'puede', 'puedo', 'cual', 'cuales'
+    }
+    keywords = [w for w in unique_words if w not in stopwords]
+
+    coincidencias = []
+    criterios_simulados = []
+
+    for kw in keywords:
+        # Búsqueda en todo el contenido de la fila
+        mask = df.astype(str).apply(lambda row: kw in ' '.join(row).lower(), axis=1)
+        count = int(mask.sum())
+        if count > 0:
+            sub = df[mask]
+            res_sub = int((sub['status_normalizado'] == 'RESUELTO').sum())
+            pen_sub = int((sub['status_normalizado'] == 'PENDIENTE').sum())
+            coincidencias.append(
+                f"COINCIDENCIA EN LA BASE PARA '{kw.upper()}':\n"
+                f"  • Total de tickets encontrados: {count}\n"
+                f"  • Estatus actual en la hoja oficial: {res_sub} resueltos, {pen_sub} pendientes\n"
+                f"  • Escenarios donde aparece: {dict(sub['Escenario_Limpio'].value_counts().head(3))}\n"
+                f"  • Acciones donde aparece: {dict(sub['Accion_Limpia'].value_counts().head(3))}"
+            )
+
+            # Si el usuario pide aplicar o simular un criterio
+            if any(term in p_lower for term in ['criterio', 'no atendido', 'atendido', 'considera', 'aplica', 'marca', 'diferente', 'otra']):
+                pend_sim = count
+                res_sim = total - count
+                pct_sim = (res_sim / total) * 100
+                criterios_simulados.append(
+                    f"CÁLCULO DEL CRITERIO SOLICITADO POR EL JEFE:\n"
+                    f"  • Regla: Los tickets con '{kw.upper()}' se consideran NO ATENDIDOS y el resto ATENDIDOS.\n"
+                    f"  • Total de NO Atendidos (Pendientes): {pend_sim} tickets\n"
+                    f"  • Total de Atendidos (Resueltos): {res_sim} tickets\n"
+                    f"  • Efectividad / Avance simulado: {pct_sim:.1f}%\n"
+                    f"  • INSTRUCCIÓN PARA TU RESPUESTA: Explica detalladamente al jefe este cálculo con los números exactos."
+                )
+
+    if coincidencias:
+        context_lines.append("\nANÁLISIS DINÁMICO EN TIEMPO REAL:")
+        context_lines.extend(coincidencias)
+
+    if criterios_simulados:
+        context_lines.append("\nSIMULACIÓN DE CRITERIO:")
+        context_lines.extend(criterios_simulados)
+
+    return "\n".join(context_lines)
+
+# ---------------------------------------------------------------
 # IA CONVERSACIONAL (Groq / Cerebras)
 # ---------------------------------------------------------------
 async def ask_ai_chat(pregunta: str, df: pd.DataFrame) -> str:
-    """Genera una respuesta humana, concisa y ejecutiva sin textos kilométricos."""
-    total = len(df)
-    resueltos = int((df['status_normalizado'] == 'RESUELTO').sum())
-    pendientes = int((df['status_normalizado'] == 'PENDIENTE').sum())
-    pct = (resueltos / total * 100) if total > 0 else 0
-    top_esc = df['Escenario_Limpio'].value_counts().head(3).to_dict()
+    """Genera una respuesta humana, concisa y ejecutiva analizando criterios y datos reales."""
+    analisis_datos = analyze_query_with_df(pregunta, df)
 
     system_prompt = (
         "Eres el 'Agente 007', el copiloto inteligente de operaciones de telecomunicaciones. "
         "Habla de forma humana, profesional, amigable y respetuosa con tu jefe ('Hola jefe', 'Buen día'). "
-        "Sé breve y conciso: máximo 2 o 3 párrafos cortos con viñetas. "
-        "Nunca uses markdown complejo ni código. Responde con calidez y precisión técnica."
+        "Tienes acceso al análisis matemático en tiempo real de la base de tickets. "
+        "Si tu jefe te pregunta por una persona (ejemplo: 'Jesús'), por un escenario o te pide aplicar un criterio hipotético, "
+        "utiliza siempre los números exactos calculados en el contexto (no inventes números). "
+        "Sé claro, conciso y estructurado (2 a 3 párrafos con viñetas limpias). "
+        "Nunca uses markdown complejo ni código. Responde con calidez y rigor técnico."
     )
 
     contexto = (
-        f"ESTADO DE TICKETS EN GOOGLE SHEETS HOY:\n"
-        f"• Total: {total} tickets\n"
-        f"• Resueltos: {resueltos} ({pct:.1f}%)\n"
-        f"• Pendientes: {pendientes} ({100 - pct:.1f}%)\n"
-        f"• Principales escenarios: {top_esc}\n\n"
+        f"{analisis_datos}\n\n"
         f"Mensaje de tu jefe: \"{pregunta}\"\n\n"
-        f"Responde directamente a lo que te pregunta de forma natural y breve."
+        f"Responde directamente con los datos exactos de forma natural, ejecutiva y breve."
     )
 
     if GROQ_API_KEY:
@@ -445,8 +510,8 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame) -> str:
                             {"role": "user", "content": contexto}
                         ],
                         model=m,
-                        temperature=0.4,
-                        max_tokens=350
+                        temperature=0.3,
+                        max_tokens=400
                     )
                     return res.choices[0].message.content
                 except Exception:
@@ -455,6 +520,10 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame) -> str:
             print(f"Error Groq: {e}", flush=True)
 
     # Fallback si no hay IA
+    total = len(df)
+    resueltos = int((df['status_normalizado'] == 'RESUELTO').sum())
+    pendientes = int((df['status_normalizado'] == 'PENDIENTE').sum())
+    pct = (resueltos / total * 100) if total > 0 else 0
     return (
         f"¡Hola jefe! Al corte de este momento llevamos {total} tickets en la base:\n\n"
         f"• ✅ {resueltos} resueltos ({pct:.1f}%)\n"
