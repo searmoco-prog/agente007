@@ -16,6 +16,29 @@ if sys.platform == "win32":
 
 load_dotenv()
 
+# ---------------------------------------------------------------
+# HEALTH CHECK SERVER (Necesario para Render Web Service)
+# Abre un puerto HTTP mínimo para que Render no apague el proceso
+# ---------------------------------------------------------------
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'{"status": "Agente 007 Online"}')
+    def log_message(self, format, *args):
+        pass  # Silenciar logs del servidor HTTP
+
+def start_health_server():
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    server.serve_forever()
+
+# Arrancar el servidor de salud en un hilo separado (no bloquea el bot)
+threading.Thread(target=start_health_server, daemon=True).start()
+
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 SHEET_URL = os.getenv(
     "GOOGLE_SHEET_CSV_URL", 
