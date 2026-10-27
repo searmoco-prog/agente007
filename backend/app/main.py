@@ -9,7 +9,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Permitir CORS para que el dashboard web pueda comunicarse sin bloqueos
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,18 +21,18 @@ app.add_middleware(
 def health_check():
     return {
         "status": "online",
-        "system": "Agente 007 Core",
-        "version": "1.0.0",
-        "features": ["Prompt Injection Guard", "Automatic SQL Cross-referencing", "Instant Resolution"]
+        "system": "Agente 007 Core API",
+        "version": "1.0.0"
     }
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 @app.post("/api/v1/tickets/process", status_code=status.HTTP_200_OK)
 async def process_ticket(ticket_input: TicketIngress):
-    """
-    Recibe un ticket (desde WhatsApp, Excel o Web) y ejecuta el flujo completo de Agente 007.
-    """
+    """Recibe un ticket y ejecuta el flujo completo de Agente 007."""
     try:
-        # Estado inicial del grafo
         initial_state = {
             "ticket_id": None,
             "descripcion_original": ticket_input.descripcion_original,
@@ -47,10 +46,7 @@ async def process_ticket(ticket_input: TicketIngress):
             "resultado_resolucion": None,
             "trazas_auditoria": []
         }
-
-        # Ejecución del grafo en LangGraph
         final_state = agente007_app.invoke(initial_state)
-
         return {
             "success": True,
             "ticket_id": final_state.get("ticket_id"),
@@ -59,7 +55,6 @@ async def process_ticket(ticket_input: TicketIngress):
             "datos_cliente": final_state.get("datos_cliente"),
             "resolucion": final_state.get("resultado_resolucion")
         }
-
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -1,0 +1,32 @@
+services:
+  # Servicio 1: Bot de Telegram (Análisis en vivo + Gráficas + Excel + IA)
+  - type: web
+    name: agente007-telegram-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python backend/telegram_bot.py
+    plan: free
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GOOGLE_SHEET_CSV_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+
+  # Servicio 2: API FastAPI + LangGraph (Motor de Resolución de Tickets en Supabase)
+  - type: web
+    name: agente007-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash -c "cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    plan: free
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
