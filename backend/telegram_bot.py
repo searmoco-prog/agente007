@@ -18,6 +18,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import PieChart, BarChart, Reference
 from openpyxl.formatting.rule import CellIsRule
 from dynamic_excel_agent import generate_dynamic_custom_excel
+from agent_mcp import decide_agent_action_mcp, execute_tool_consultar_kpis
 
 # Salida estándar sin buffer para logs en tiempo real
 sys.stdout.reconfigure(line_buffering=True)
@@ -949,6 +950,61 @@ async def run_bot():
                             json={"chat_id": chat_id, "text": msg_saludo, "reply_markup": BOTONES_ACCIONES}
                         )
                         continue
+
+                    # -------------------------------------------------------------
+                    # 🤖 NIVEL 3: ORQUESTADOR AUTÓNOMO MCP (Tool Calling Dinámico)
+                    # -------------------------------------------------------------
+                    df = await fetch_cleaned_data()
+                    mcp_res = await decide_agent_action_mcp(
+                        pregunta=texto,
+                        df=df,
+                        chat_id=chat_id,
+                        api_key=GROQ_API_KEY,
+                        modelos=MODELOS_GROQ,
+                        historial_chat=HISTORIAL_CHAT
+                    )
+
+                    if mcp_res:
+                        action = mcp_res.get("action")
+                        args = mcp_res.get("args", {})
+                        print(f"🤖 [MCP TOOL CALL EJECUTADO]: {action} con args: {args}", flush=True)
+
+                        if action == "generar_excel_personalizado":
+                            instruccion = args.get("instruccion", texto)
+                            await send_dynamic_custom_excel(client, chat_id, instruccion, df)
+                            continue
+
+                        elif action == "generar_grafica_operativa":
+                            tipo = args.get("tipo", "oficial_general")
+                            if tipo == "criterio_especifico":
+                                crit = apply_multi_criteria(texto, df)
+                                if crit is not None:
+                                    df_crit, reglas_det, def_stat = crit
+                                    await send_criteria_chart_to_user(client, chat_id, df_crit, reglas_det, def_stat)
+                                    continue
+                            await send_chart_to_user(client, chat_id)
+                            continue
+
+                        elif action == "consultar_kpis_en_vivo":
+                            resp = await ask_ai_chat(texto, df, chat_id=chat_id)
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": chat_id, "text": resp, "reply_markup": BOTONES_ACCIONES}
+                            )
+                            continue
+
+                        elif action == "chat_reply":
+                            llm_reply = mcp_res.get("llm_text")
+                            if llm_reply:
+                                if chat_id not in HISTORIAL_CHAT:
+                                    HISTORIAL_CHAT[chat_id] = []
+                                HISTORIAL_CHAT[chat_id].append({"role": "user", "content": texto})
+                                HISTORIAL_CHAT[chat_id].append({"role": "assistant", "content": llm_reply})
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": chat_id, "text": llm_reply, "reply_markup": BOTONES_ACCIONES}
+                                )
+                                continue
 
                     # CASO B: Petición explícita SIMPLE de Gráfica Oficial
                     es_pedido_grafica_simple = (
