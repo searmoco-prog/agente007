@@ -38,8 +38,6 @@ GROQ_MODEL_CUSTOM = os.getenv("GROQ_MODEL", "").strip()
 MODELOS_GROQ = [
     GROQ_MODEL_CUSTOM,
     "qwen/qwen3.8-27b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant"
 ]
 MODELOS_GROQ = [m for m in MODELOS_GROQ if m]
 
@@ -728,6 +726,7 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame, chat_id: int = None) -> s
             client = AsyncGroq(api_key=GROQ_API_KEY)
             for m in MODELOS_GROQ:
                 try:
+                    print(f"Probando modelo en Groq: '{m}'...", flush=True)
                     res = await client.chat.completions.create(
                         messages=messages,
                         model=m,
@@ -735,9 +734,10 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame, chat_id: int = None) -> s
                         max_tokens=400
                     )
                     respuesta_final = res.choices[0].message.content
+                    print(f"-> EXITO con modelo: {m}!", flush=True)
                     break
-                except Exception:
-                    pass
+                except Exception as ex_m:
+                    print(f"Error con modelo {m}: {ex_m}", flush=True)
         except Exception as e:
             print(f"Error Groq: {e}", flush=True)
 

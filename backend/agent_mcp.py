@@ -158,6 +158,7 @@ async def decide_agent_action_mcp(
 
         for m in modelos:
             try:
+                print(f"🤖 [MCP] Evaluando modelo en Groq: '{m}'...", flush=True)
                 res = await client.chat.completions.create(
                     model=m,
                     messages=messages,
@@ -166,6 +167,7 @@ async def decide_agent_action_mcp(
                     temperature=0.1,
                     max_tokens=300
                 )
+                print(f"-> EXITO MCP con modelo: {m}!", flush=True)
 
                 msg = res.choices[0].message
                 
