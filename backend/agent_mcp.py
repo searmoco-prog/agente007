@@ -77,6 +77,27 @@ TOOLS_DEFINITIONS = [
                 }
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "procesar_ticket_langgraph",
+            "description": "Ejecuta el grafo multi-agente de resolución de incidentes en Supabase (LangGraph: Sanitizer -> Classifier -> Cross-Referencer -> Evaluator -> Action). Úsalo cuando el usuario reporte un incidente, falla de servicio, pida resolver un ticket, activar un servicio para una cuenta (ej: CLI-1001, CLI-1002) o consultar el dictamen técnico de un cliente.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "descripcion_problema": {
+                        "type": "string",
+                        "description": "Descripción completa del incidente o solicitud del cliente (ej: 'Activar servicio para cuenta CLI-1001')"
+                    },
+                    "cuenta_cliente": {
+                        "type": "string",
+                        "description": "Identificador o número de cuenta del cliente si se detecta (ej: 'CLI-1001'). Opcional."
+                    }
+                },
+                "required": ["descripcion_problema"]
+            }
+        }
     }
 ]
 
@@ -112,6 +133,64 @@ def execute_tool_consultar_kpis(df: pd.DataFrame, filtro_especifico: Optional[st
         }
 
     return resultado
+
+def execute_langgraph_ticket(descripcion: str, cuenta: Optional[str] = None, canal: str = "TELEGRAM") -> Dict[str, Any]:
+    """Herramienta 4: Ejecuta el flujo multi-agente de 5 nodos en LangGraph + Supabase."""
+    try:
+        import sys, os
+        # Asegurar ruta backend en sys.path
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        if base_dir not in sys.path:
+            sys.path.insert(0, base_dir)
+
+        from app.graph.workflow import agente007_app
+
+        initial_state = {
+            "ticket_id": None,
+            "descripcion_original": descripcion,
+            "cuenta_cliente_input": cuenta,
+            "canal_origen": canal,
+            "es_seguro": True,
+            "motivo_bloqueo_seguridad": None,
+            "clasificacion": None,
+            "datos_cliente": None,
+            "catalogo_regla": None,
+            "resultado_resolucion": None,
+            "trazas_auditoria": []
+        }
+
+        final_state = agente007_app.invoke(initial_state)
+        resolucion = final_state.get("resultado_resolucion")
+        clasif = final_state.get("clasificacion")
+        cliente = final_state.get("datos_cliente")
+        seguro = final_state.get("es_seguro", True)
+
+        return {
+            "exito": True,
+            "es_seguro": seguro,
+            "ticket_id": final_state.get("ticket_id"),
+            "status": resolucion.status if resolucion else "PENDIENTE",
+            "resolucion_automatica": resolucion.resolucion_automatica if resolucion else False,
+            "comentario": resolucion.comentario_resolucion if resolucion else "En proceso",
+            "clasificacion": {
+                "tipo": clasif.tipo if clasif else "GENERAL",
+                "categoria": clasif.categoria if clasif else "GENERAL",
+                "accion": clasif.accion if clasif else "GENERAL",
+                "cuenta": clasif.cuenta_cliente if clasif else cuenta
+            } if clasif else None,
+            "cliente": {
+                "nombre": cliente.nombre_completo if cliente and cliente.encontrado else "No identificado",
+                "saldo": cliente.saldo_pendiente if cliente and cliente.encontrado else 0.0,
+                "plan": cliente.plan_servicio if cliente and cliente.encontrado else "Desconocido",
+                "estado_servicio": cliente.estado_servicio if cliente and cliente.encontrado else "DESCONOCIDO"
+            } if cliente and cliente.encontrado else None
+        }
+    except Exception as e:
+        print(f"Error ejecutando LangGraph ticket: {e}", flush=True)
+        return {
+            "exito": False,
+            "error": str(e)
+        }
 
 async def decide_agent_action_mcp(
     pregunta: str, 

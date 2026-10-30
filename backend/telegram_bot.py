@@ -18,7 +18,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import PieChart, BarChart, Reference
 from openpyxl.formatting.rule import CellIsRule
 from dynamic_excel_agent import generate_dynamic_custom_excel
-from agent_mcp import decide_agent_action_mcp, execute_tool_consultar_kpis
+from agent_mcp import decide_agent_action_mcp, execute_tool_consultar_kpis, execute_langgraph_ticket
 
 # Salida estándar sin buffer para logs en tiempo real
 sys.stdout.reconfigure(line_buffering=True)
@@ -994,6 +994,41 @@ async def run_bot():
                             )
                             continue
 
+                        elif action == "procesar_ticket_langgraph":
+                            desc = args.get("descripcion_problema", texto)
+                            cuenta = args.get("cuenta_cliente")
+                            res_lg = execute_langgraph_ticket(desc, cuenta, canal="TELEGRAM")
+
+                            if res_lg.get("exito"):
+                                stat = res_lg.get("status", "PENDIENTE")
+                                auto = "✅ SÍ (Automática)" if res_lg.get("resolucion_automatica") else "⚠️ NO (Escalado Humano)"
+                                clas = res_lg.get("clasificacion") or {}
+                                cli = res_lg.get("cliente")
+                                cli_txt = f"{cli['nombre']} ({clas.get('cuenta', 'N/A')})" if cli else (clas.get('cuenta') or "No identificado")
+                                saldo_txt = f"${cli['saldo']:.2f} USD" if cli else "N/A"
+
+                                msg_veredicto = (
+                                    "🕵️ [DICTAMEN MULTI-AGENTE 007 — LANGGRAPH]\n\n"
+                                    f"• 🏷️ **Clasificación:** {clas.get('tipo', 'REQUERIMIENTO')} - {clas.get('categoria', 'ACTIVACION')} ({clas.get('accion', 'ACCION')})\n"
+                                    f"• 👤 **Cliente:** {cli_txt}\n"
+                                    f"• 💰 **Saldo Contable:** {saldo_txt}\n"
+                                    f"• ⚡ **Resolución:** {stat} | Auto: {auto}\n\n"
+                                    f"📋 **Comentario Técnico:**\n"
+                                    f"\"{res_lg.get('comentario')}\"\n\n"
+                                    "🔒 *Trazabilidad de 5 nodos y auditoría registrada en Supabase.*"
+                                )
+                            else:
+                                msg_veredicto = (
+                                    "⚠️ [ERROR EN MOTOR MULTI-AGENTE LANGGRAPH]\n\n"
+                                    f"No fue posible completar el ciclo en Supabase: {res_lg.get('error')}"
+                                )
+
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": chat_id, "text": msg_veredicto, "reply_markup": BOTONES_ACCIONES}
+                            )
+                            continue
+
                         elif action == "chat_reply":
                             llm_reply = mcp_res.get("llm_text")
                             if llm_reply:
@@ -1006,6 +1041,33 @@ async def run_bot():
                                     json={"chat_id": chat_id, "text": llm_reply, "reply_markup": BOTONES_ACCIONES}
                                 )
                                 continue
+
+                    # CASO B0: Petición explícita de Incidente/Ticket con cuenta de cliente (Fallback LangGraph)
+                    if "cli-" in texto_lower:
+                        res_lg = execute_langgraph_ticket(texto, canal="TELEGRAM")
+                        if res_lg.get("exito"):
+                            stat = res_lg.get("status", "PENDIENTE")
+                            auto = "✅ SÍ (Automática)" if res_lg.get("resolucion_automatica") else "⚠️ NO (Escalado Humano)"
+                            clas = res_lg.get("clasificacion") or {}
+                            cli = res_lg.get("cliente")
+                            cli_txt = f"{cli['nombre']} ({clas.get('cuenta', 'N/A')})" if cli else (clas.get('cuenta') or "No identificado")
+                            saldo_txt = f"${cli['saldo']:.2f} USD" if cli else "N/A"
+
+                            msg_veredicto = (
+                                "🕵️ [DICTAMEN MULTI-AGENTE 007 — LANGGRAPH]\n\n"
+                                f"• 🏷️ **Clasificación:** {clas.get('tipo', 'REQUERIMIENTO')} - {clas.get('categoria', 'ACTIVACION')} ({clas.get('accion', 'ACCION')})\n"
+                                f"• 👤 **Cliente:** {cli_txt}\n"
+                                f"• 💰 **Saldo Contable:** {saldo_txt}\n"
+                                f"• ⚡ **Resolución:** {stat} | Auto: {auto}\n\n"
+                                f"📋 **Comentario Técnico:**\n"
+                                f"\"{res_lg.get('comentario')}\"\n\n"
+                                "🔒 *Trazabilidad de 5 nodos y auditoría registrada en Supabase.*"
+                            )
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": chat_id, "text": msg_veredicto, "reply_markup": BOTONES_ACCIONES}
+                            )
+                            continue
 
                     # CASO B: Petición explícita SIMPLE de Gráfica Oficial
                     es_pedido_grafica_simple = (
