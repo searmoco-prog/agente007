@@ -37,7 +37,8 @@ GROQ_MODEL_CUSTOM = os.getenv("GROQ_MODEL", "").strip()
 
 MODELOS_GROQ = [
     GROQ_MODEL_CUSTOM,
-    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-120b",  # Principal (120B de OpenAI en Groq)
+    "qwen/qwen3.8-27b",     # Respaldo (27B de Alibaba Cloud en Groq)
 ]
 MODELOS_GROQ = [m for m in MODELOS_GROQ if m]
 
