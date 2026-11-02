@@ -781,18 +781,98 @@ BOTONES_ACCIONES = {
     ]
 }
 
-async def send_chart_to_user(client: httpx.AsyncClient, chat_id: int):
-    """Envía la gráfica OFICIAL de base (datos reales del Sheet)."""
+# ---------------------------------------------------------------
+# GESTOR DE ARCHIVOS SUBIDOS EN SESIÓN (.xlsx, .csv, .xls)
+# ---------------------------------------------------------------
+DATAFRAME_SESION = {}  # {chat_id: {"df": pd.DataFrame, "filename": str, "total_filas": int}}
+
+async def get_active_dataframe(chat_id: int) -> tuple[pd.DataFrame, str]:
+    """Retorna el DataFrame activo para el chat (el archivo que subió el usuario o la hoja oficial)."""
+    if chat_id in DATAFRAME_SESION:
+        info = DATAFRAME_SESION[chat_id]
+        return info["df"], f"Archivo subido: {info['filename']}"
+    df_oficial = await fetch_cleaned_data()
+    return df_oficial, "Hoja Oficial en Vivo (Google Sheet)"
+
+async def download_telegram_file(client: httpx.AsyncClient, file_id: str) -> bytes:
+    """Descarga el archivo binario desde la API de Telegram."""
+    info_resp = await client.get(f"{BASE_URL}/getFile?file_id={file_id}")
+    info_resp.raise_for_status()
+    file_path = info_resp.json()["result"]["file_path"]
+    download_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
+    file_resp = await client.get(download_url)
+    file_resp.raise_for_status()
+    return file_resp.content
+
+def parse_uploaded_file(file_bytes: bytes, file_name: str) -> pd.DataFrame:
+    """Lee y normaliza cualquier archivo subido (.xlsx, .xls, .csv, .tsv) a un DataFrame universal."""
+    file_name_lower = file_name.lower()
+    if file_name_lower.endswith(('.xlsx', '.xls')):
+        df = pd.read_excel(io.BytesIO(file_bytes))
+    elif file_name_lower.endswith(('.csv', '.txt', '.tsv')):
+        try:
+            sep = '\t' if file_name_lower.endswith('.tsv') else ','
+            df = pd.read_csv(io.BytesIO(file_bytes), sep=sep, encoding='utf-8', engine='python')
+        except Exception:
+            df = pd.read_csv(io.BytesIO(file_bytes), encoding='latin-1', engine='python')
+    else:
+        raise ValueError(f"Formato no soportado para '{file_name}'. Sube un archivo .xlsx, .xls o .csv")
+
+    df.columns = [str(c).strip() for c in df.columns]
+    cols = list(df.columns)
+
+    # 1. Asegurar Ticket y REQ para compatibilidad total
+    if 'Ticket' not in df.columns:
+        df['Ticket'] = df[cols[0]].astype(str) if len(cols) > 0 else "0"
+    if 'REQ' not in df.columns:
+        df['REQ'] = df[cols[1]].astype(str) if len(cols) > 1 else ""
+
+    # 2. Escenario_Limpio
+    if 'Escenario_Limpio' not in df.columns:
+        if 'Escenario' in df.columns:
+            df['Escenario_Limpio'] = df['Escenario'].fillna('NO ESPECIFICADO').astype(str).str.upper().str.strip()
+        elif len(cols) > 2:
+            df['Escenario_Limpio'] = df[cols[2]].fillna('GENERAL').astype(str).str.upper().str.strip()
+        else:
+            df['Escenario_Limpio'] = "GENERAL"
+
+    # 3. Accion_Limpia
+    if 'Accion_Limpia' not in df.columns:
+        candidates = [c for c in df.columns if any(k in c.lower() for k in ['acci', 'accion', 'action', 'tipo', 'falla', 'nombre', 'sitio', 'servicio'])]
+        if candidates:
+            df['Accion_Limpia'] = df[candidates[0]].fillna('SIN ACCIÓN').astype(str).str.strip()
+        elif len(cols) > 3:
+            df['Accion_Limpia'] = df[cols[3]].fillna('SIN ACCIÓN').astype(str).str.strip()
+        else:
+            df['Accion_Limpia'] = "REGISTRO"
+
+    # 4. status_normalizado
+    if 'status_normalizado' not in df.columns:
+        status_candidates = [c for c in df.columns if any(k in c.lower() for k in ['status', 'estatus', 'estado', 'resuelto', 'resolu'])]
+        if status_candidates:
+            df['status_normalizado'] = df[status_candidates[0]].astype(str).str.strip().str.upper().apply(
+                lambda s: 'RESUELTO' if any(w in s.lower() for w in ['resuelto', 'cerrado', 'ok', 'atendido', 'exito', 'activo']) else 'PENDIENTE'
+            )
+        else:
+            df['status_normalizado'] = 'RESUELTO'
+
+    return df
+
+async def send_chart_to_user(client: httpx.AsyncClient, chat_id: int, df: pd.DataFrame = None, label: str = ""):
+    """Envía la gráfica oficial de base o del archivo activo del usuario."""
     await client.post(
         f"{BASE_URL}/sendMessage",
-        json={"chat_id": chat_id, "text": "📊 Generando gráfica oficial de operaciones..."}
+        json={"chat_id": chat_id, "text": "📊 Generando gráfica de operaciones..."}
     )
-    df = await fetch_cleaned_data()
+    if df is None:
+        df, label = await get_active_dataframe(chat_id)
+    elif not label:
+        label = "Corte Operativo"
     img_bytes = generate_chart_bytes(df)
-    files = {"photo": ("grafica_oficial_007.png", img_bytes, "image/png")}
+    files = {"photo": ("grafica_operativa_007.png", img_bytes, "image/png")}
     await client.post(
         f"{BASE_URL}/sendPhoto",
-        data={"chat_id": chat_id, "caption": "📊 Gráfica Oficial: Corte en vivo de la operación."},
+        data={"chat_id": chat_id, "caption": f"📊 Gráfica: {label}"},
         files=files
     )
 
@@ -820,7 +900,9 @@ async def send_excel_to_user(client: httpx.AsyncClient, chat_id: int, df: pd.Dat
             f"{BASE_URL}/sendMessage",
             json={"chat_id": chat_id, "text": "📁 Compilando libro Excel corporativo con fórmulas automáticas..."}
         )
-        df = await fetch_cleaned_data()
+        df, label_fuente = await get_active_dataframe(chat_id)
+        if not titulo_reporte:
+            titulo_reporte = label_fuente
     else:
         label = f": {titulo_reporte}" if titulo_reporte else ""
         await client.post(
@@ -839,7 +921,7 @@ async def send_excel_to_user(client: httpx.AsyncClient, chat_id: int, df: pd.Dat
 async def send_dynamic_custom_excel(client: httpx.AsyncClient, chat_id: int, query: str, df: pd.DataFrame = None):
     """Genera y envía un Excel a medida con filtros, colores y fórmulas vivas solicitadas en lenguaje natural."""
     if df is None:
-        df = await fetch_cleaned_data()
+        df, _ = await get_active_dataframe(chat_id)
 
     await client.post(
         f"{BASE_URL}/sendMessage",
@@ -897,30 +979,106 @@ async def run_bot():
                         cb_chat_id = cb["message"]["chat"]["id"]
                         
                         await client.post(f"{BASE_URL}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+                        df_btn, label_btn = await get_active_dataframe(cb_chat_id)
 
                         if cb_data == "btn_chart":
-                            await send_chart_to_user(client, cb_chat_id)
+                            await send_chart_to_user(client, cb_chat_id, df=df_btn, label=label_btn)
                         elif cb_data == "btn_excel":
-                            await send_excel_to_user(client, cb_chat_id)
+                            await send_excel_to_user(client, cb_chat_id, df=df_btn, titulo_reporte=label_btn)
                         elif cb_data == "btn_summary":
-                            df = await fetch_cleaned_data()
-                            resumen = await ask_ai_chat("Dame el resumen general del turno", df, chat_id=cb_chat_id)
+                            resumen = await ask_ai_chat("Dame el resumen general del turno", df_btn, chat_id=cb_chat_id)
                             await client.post(
                                 f"{BASE_URL}/sendMessage",
                                 json={"chat_id": cb_chat_id, "text": resumen, "reply_markup": BOTONES_ACCIONES}
                             )
                         continue
 
-                    # 2. MANEJAR MENSAJES DE TEXTO
+                    # 2. MANEJAR MENSAJES (Texto o Documentos subidos)
                     message = update.get("message")
-                    if not message or "text" not in message:
+                    if not message:
                         continue
 
                     chat_id = message["chat"]["id"]
-                    texto = message["text"].strip()
-                    texto_lower = texto.lower()
+                    documento = message.get("document")
+
+                    # A) ¿El usuario subió un documento (.xlsx, .csv, .xls, etc.)?
+                    if documento:
+                        file_id = documento.get("file_id")
+                        file_name = documento.get("file_name", "archivo.xlsx")
+                        caption = message.get("caption", "").strip()
+
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={"chat_id": chat_id, "text": f"📥 Descargando y procesando '{file_name}' en memoria segura..."}
+                        )
+
+                        try:
+                            file_bytes = await download_telegram_file(client, file_id)
+                            df_uploaded = parse_uploaded_file(file_bytes, file_name)
+                            DATAFRAME_SESION[chat_id] = {
+                                "df": df_uploaded,
+                                "filename": file_name,
+                                "total_filas": len(df_uploaded)
+                            }
+
+                            total_f = len(df_uploaded)
+                            col_list = ", ".join(list(df_uploaded.columns)[:6])
+
+                            if caption:
+                                texto = caption
+                                texto_lower = texto.lower()
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={
+                                        "chat_id": chat_id,
+                                        "text": f"✅ ¡Archivo '{file_name}' recibido ({total_f} filas)!\n⚡ Procesando su instrucción: \"{caption}\"..."
+                                    }
+                                )
+                            else:
+                                msg_confirm = (
+                                    f"✅ ¡Archivo '{file_name}' cargado con éxito! 🫡\n\n"
+                                    f"• 📊 Registros detectados: {total_f} filas\n"
+                                    f"• 📑 Columnas clave: {col_list}\n\n"
+                                    "¿Qué desea que haga con este archivo, jefe?\n"
+                                    "👉 'Fíltralo por [palabra] y dámelo en Excel'\n"
+                                    "👉 'Pinta de amarillo los que dicen [criterio]'\n"
+                                    "👉 'Sácame la gráfica de este archivo'\n"
+                                    "👉 'Dame el resumen y KPIs'\n\n"
+                                    "💡 (Para volver a la base oficial de Google Sheet, escribe /reset o 'base oficial')"
+                                )
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": chat_id, "text": msg_confirm, "reply_markup": BOTONES_ACCIONES}
+                                )
+                                continue
+                        except Exception as e:
+                            print(f"Error procesando documento: {e}", flush=True)
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": chat_id, "text": f"⚠️ Error al leer '{file_name}': {str(e)}\n\nAsegúrate de subir un archivo .xlsx, .xls o .csv válido."}
+                            )
+                            continue
+                    elif "text" in message:
+                        texto = message["text"].strip()
+                        texto_lower = texto.lower()
+                    else:
+                        continue
 
                     print(f"Mensaje de {chat_id}: {texto}", flush=True)
+
+                    # Reset de sesión de archivo hacia la base oficial
+                    if any(texto_lower == r or texto_lower.startswith(r) for r in ['/reset', '/oficial', 'base oficial', 'hoja oficial', 'restablecer', 'volver a la base']):
+                        if chat_id in DATAFRAME_SESION:
+                            del DATAFRAME_SESION[chat_id]
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={
+                                    "chat_id": chat_id,
+                                    "text": "🔄 Sesión restablecida con éxito.\n\nAhora estás consultando nuevamente la Hoja Oficial en Vivo (Google Sheet) de la empresa.",
+                                    "reply_markup": BOTONES_ACCIONES
+                                }
+                            )
+                            continue
 
                     # 🛡️ CAPA 0: ESCUDO DE SEGURIDAD PERIMETRAL (Guardrail Anti-Jailbreak)
                     if check_perimeter_security(texto):
@@ -944,7 +1102,8 @@ async def run_bot():
                         msg_saludo = (
                             "¡Hola jefe, buen día! 🫡 Agente 007 a la orden.\n\n"
                             "¿En qué le puedo apoyar hoy? Puedo darle el corte de tickets en vivo, "
-                            "generarle la gráfica o prepararle el Excel corporativo con gráficas nativas."
+                            "generarle la gráfica o prepararle el Excel corporativo con gráficas nativas.\n\n"
+                            "📎 También puede arrastrar o subir cualquier archivo Excel o CSV directamente aquí para que lo analice a su gusto."
                         )
                         await client.post(
                             f"{BASE_URL}/sendMessage",
@@ -955,7 +1114,7 @@ async def run_bot():
                     # -------------------------------------------------------------
                     # 🤖 NIVEL 3: ORQUESTADOR AUTÓNOMO MCP (Tool Calling Dinámico)
                     # -------------------------------------------------------------
-                    df = await fetch_cleaned_data()
+                    df, fuente_nombre = await get_active_dataframe(chat_id)
                     mcp_res = await decide_agent_action_mcp(
                         pregunta=texto,
                         df=df,
@@ -1089,7 +1248,7 @@ async def run_bot():
 
                     # 1. Petición explícita de Excel a medida con filtros, colores o fórmulas
                     if pide_excel and es_excel_dinamico:
-                        df = await fetch_cleaned_data()
+                        df, _ = await get_active_dataframe(chat_id)
                         await send_dynamic_custom_excel(client, chat_id, texto, df)
                         continue
 
@@ -1100,12 +1259,12 @@ async def run_bot():
                             await send_excel_to_user(client, chat_id, df=df_crit, status_col='status_criterio', titulo_reporte=tit)
                             continue
                     elif pide_excel and len(texto.split()) <= 4 and not any(c in texto_lower for c in ['criterio', 'jesus', 'ariel', 'atendido', 'filtra', 'si ', 'excepto']):
-                        # Pedido simple del Excel oficial
+                        # Pedido simple del Excel oficial o del archivo activo
                         await send_excel_to_user(client, chat_id)
                         continue
 
                     # CASO D: Preguntas analíticas, criterios dinámicos y consultas complejas
-                    df = await fetch_cleaned_data()
+                    df, _ = await get_active_dataframe(chat_id)
                     resultado_multi = apply_multi_criteria(texto, df)
                     pide_grafica_en_msg = any(p in texto_lower for p in ['grafica', 'gráfica', 'grafico', 'chart'])
                     pide_excel_en_msg = any(p in texto_lower for p in ['excel', 'xlsx'])
