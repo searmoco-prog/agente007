@@ -20,6 +20,7 @@ from openpyxl.formatting.rule import CellIsRule
 from dynamic_excel_agent import generate_dynamic_custom_excel
 from universal_excel_agent import process_universal_excel, inspect_workbook
 from agent_mcp import decide_agent_action_mcp, execute_tool_consultar_kpis, execute_langgraph_ticket
+from session_storage import save_user_session, restore_user_session
 
 # Salida estándar sin buffer para logs en tiempo real
 sys.stdout.reconfigure(line_buffering=True)
@@ -790,11 +791,32 @@ BOTONES_ACCIONES = {
 MODO_SESION = {}       # {chat_id: 'telecom' | 'universal'}
 DATAFRAME_SESION = {}  # {chat_id: {"df": pd.DataFrame, "filename": str, "total_filas": int, "raw_bytes": bytes}}
 
-async def get_active_dataframe(chat_id: int) -> tuple[pd.DataFrame, str]:
-    """Retorna el DataFrame activo para el chat (el archivo que subió el usuario o la hoja oficial)."""
+async def get_active_dataframe(chat_id: int, client: httpx.AsyncClient = None) -> tuple[pd.DataFrame, str]:
+    """Retorna el DataFrame activo para el chat (el archivo que subió el usuario, restaurado o la hoja oficial)."""
     if chat_id in DATAFRAME_SESION:
         info = DATAFRAME_SESION[chat_id]
         return info["df"], f"Archivo subido: {info['filename']}"
+
+    # Intentar restaurar sesión persistente de disco o Supabase si Render reinició
+    try:
+        restored = await restore_user_session(chat_id, client=client, bot_token=TOKEN)
+        if restored and restored.get("raw_bytes"):
+            raw_b = restored["raw_bytes"]
+            fname = restored["filename"]
+            df_up, sheets_f, s_act = parse_uploaded_file(raw_b, fname)
+            DATAFRAME_SESION[chat_id] = {
+                "df": df_up,
+                "filename": fname,
+                "total_filas": len(df_up),
+                "sheets": sheets_f,
+                "active_sheet": s_act,
+                "raw_bytes": raw_b,
+                "file_id": restored.get("file_id", "")
+            }
+            return df_up, f"Archivo activo (sesión recuperada): {fname}"
+    except Exception as e_res:
+        print(f"Detalle al restaurar sesión activa: {e_res}", flush=True)
+
     df_oficial = await fetch_cleaned_data()
     return df_oficial, "Hoja Oficial en Vivo (Google Sheet)"
 
@@ -1072,8 +1094,11 @@ async def run_bot():
                                 "total_filas": len(df_uploaded),
                                 "sheets": sheets_found,
                                 "active_sheet": sheet_active,
-                                "raw_bytes": file_bytes
+                                "raw_bytes": file_bytes,
+                                "file_id": file_id
                             }
+                            # Guardar en persistencia (disco y Supabase) para sobrevivir reinicios de Render
+                            save_user_session(chat_id, file_id, file_name, file_bytes, sheets_found, sheet_active, df_uploaded)
 
                             total_f = len(df_uploaded)
                             col_list = ", ".join(list(df_uploaded.columns)[:8])
@@ -1190,6 +1215,27 @@ async def run_bot():
                         texto = "Calcula el margen y resalta en verde > 35%, genera tabla dinámica con gráfico circular por Estado y agrega módulo de búsqueda con BUSCARV"
                         texto_lower = texto.lower()
 
+                    # Restaurar sesión si la memoria RAM se reinició por inactividad de Render
+                    if chat_id not in DATAFRAME_SESION:
+                        try:
+                            restored = await restore_user_session(chat_id, client=client, bot_token=TOKEN)
+                            if restored and restored.get("raw_bytes"):
+                                raw_b_res = restored["raw_bytes"]
+                                fname_res = restored["filename"]
+                                df_res, sheets_res, act_res = parse_uploaded_file(raw_b_res, fname_res)
+                                DATAFRAME_SESION[chat_id] = {
+                                    "df": df_res,
+                                    "filename": fname_res,
+                                    "total_filas": len(df_res),
+                                    "sheets": sheets_res,
+                                    "active_sheet": act_res,
+                                    "raw_bytes": raw_b_res,
+                                    "file_id": restored.get("file_id", "")
+                                }
+                                print(f"✅ Sesión restaurada desde persistencia para {chat_id} ({fname_res})", flush=True)
+                        except Exception as e_res:
+                            print(f"Error restaurando sesión persistente: {e_res}", flush=True)
+
                     # Si el usuario tiene un archivo subido activo en memoria: procesar con Analista Universal
                     if chat_id in DATAFRAME_SESION and DATAFRAME_SESION[chat_id].get("raw_bytes"):
                         raw_b = DATAFRAME_SESION[chat_id]["raw_bytes"]
@@ -1204,6 +1250,7 @@ async def run_bot():
                             res_bytes, out_name, out_msg = process_universal_excel(raw_b, texto, f_name)
                             # Actualizar los raw_bytes de la sesión con la versión modificada
                             DATAFRAME_SESION[chat_id]["raw_bytes"] = res_bytes
+                            save_user_session(chat_id, DATAFRAME_SESION[chat_id].get("file_id", ""), f_name, res_bytes, DATAFRAME_SESION[chat_id].get("sheets", []), DATAFRAME_SESION[chat_id].get("active_sheet", "Base_Datos"), DATAFRAME_SESION[chat_id].get("df"))
                             
                             files = {"document": (out_name, res_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
                             await client.post(
