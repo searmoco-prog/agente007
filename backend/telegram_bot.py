@@ -1015,7 +1015,27 @@ async def run_bot():
                         if cb_data == "btn_chart":
                             await send_chart_to_user(client, cb_chat_id, df=df_btn, label=label_btn)
                         elif cb_data == "btn_excel":
-                            await send_excel_to_user(client, cb_chat_id, df=df_btn, titulo_reporte=label_btn)
+                            if cb_chat_id in DATAFRAME_SESION and DATAFRAME_SESION[cb_chat_id].get("raw_bytes"):
+                                raw_b = DATAFRAME_SESION[cb_chat_id]["raw_bytes"]
+                                f_name = DATAFRAME_SESION[cb_chat_id]["filename"]
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": cb_chat_id, "text": f"⚡ Generando libro Excel enriquecido con todas las transformaciones sobre '{f_name}'..."}
+                                )
+                                res_bytes, out_name, out_msg = process_universal_excel(raw_b, "todas", f_name)
+                                DATAFRAME_SESION[cb_chat_id]["raw_bytes"] = res_bytes
+                                files = {"document": (out_name, res_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+                                await client.post(
+                                    f"{BASE_URL}/sendDocument",
+                                    data={"chat_id": cb_chat_id, "caption": f"📁 {out_name} con fórmulas vivas, formatos y gráficas."},
+                                    files=files
+                                )
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": cb_chat_id, "text": out_msg, "reply_markup": BOTONES_ACCIONES}
+                                )
+                            else:
+                                await send_excel_to_user(client, cb_chat_id, df=df_btn, titulo_reporte=label_btn)
                         elif cb_data == "btn_summary":
                             resumen = await ask_ai_chat("Dame el resumen general del turno", df_btn, chat_id=cb_chat_id)
                             await client.post(
@@ -1157,26 +1177,21 @@ async def run_bot():
 
                     # Normalización de intenciones numéricas / lenguaje natural para archivos cargados
                     t_clean = texto_lower.strip()
-                    if t_clean in ['1', 'opcion 1', 'opción 1', 'la 1', 'la primera', 'la primera opcion', 'la primera opción', 'primera opcion', 'primera opción']:
+                    if any(t_clean == k or t_clean.startswith(k) for k in ['1', 'opcion 1', 'opción 1', 'la 1', 'el 1', 'la primera', 'el primero', 'primera']):
                         texto = "Calcula el margen y resalta en verde > 35%"
                         texto_lower = texto.lower()
-                    elif t_clean in ['2', 'opcion 2', 'opción 2', 'la 2', 'la segunda', 'la segunda opcion', 'la segunda opción', 'segunda opcion', 'segunda opción']:
+                    elif any(t_clean == k or t_clean.startswith(k) for k in ['2', 'opcion 2', 'opción 2', 'la 2', 'el 2', 'la segunda', 'el segundo', 'segunda']):
                         texto = "Genera tabla dinámica y gráfico circular por Estado"
                         texto_lower = texto.lower()
-                    elif t_clean in ['3', 'opcion 3', 'opción 3', 'la 3', 'la tercera', 'la tercera opcion', 'la tercera opción', 'tercera opcion', 'tercera opción']:
+                    elif any(t_clean == k or t_clean.startswith(k) for k in ['3', 'opcion 3', 'opción 3', 'la 3', 'el 3', 'la tercera', 'el tercero', 'tercera']):
                         texto = "Agrega módulo de búsqueda con BUSCARV / XLOOKUP"
                         texto_lower = texto.lower()
-                    elif t_clean in ['todas', 'todo', 'las 3', 'haz todo', 'todas las opciones', 'las tres', 'aplica todo']:
+                    elif any(k in t_clean for k in ['todas', 'todo', 'las 3', 'haz todo', 'todas las opciones', 'las tres', 'aplica todo', 'ambas', 'completo']):
                         texto = "Calcula el margen y resalta en verde > 35%, genera tabla dinámica con gráfico circular por Estado y agrega módulo de búsqueda con BUSCARV"
                         texto_lower = texto.lower()
 
-                    # Manejo de Transformaciones de Analista Universal sobre archivo subido
-                    es_peticion_universal = any(k in texto_lower for k in [
-                        'margen', 'rentabilidad', 'buscarv', 'xlookup', 'tabla dinamica', 'tabla dinámica',
-                        'distribucion', 'distribución', 'circular', 'pastel', 'ganancia', '35%'
-                    ]) or MODO_SESION.get(chat_id) == "universal"
-
-                    if es_peticion_universal and chat_id in DATAFRAME_SESION and DATAFRAME_SESION[chat_id].get("raw_bytes"):
+                    # Si el usuario tiene un archivo subido activo en memoria: procesar con Analista Universal
+                    if chat_id in DATAFRAME_SESION and DATAFRAME_SESION[chat_id].get("raw_bytes"):
                         raw_b = DATAFRAME_SESION[chat_id]["raw_bytes"]
                         f_name = DATAFRAME_SESION[chat_id]["filename"]
 

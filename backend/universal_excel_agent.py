@@ -92,10 +92,22 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
         ws_data = wb.active
         target_sheet_name = ws_data.title
 
+    # Determinar qué citas ejecutar
+    ejecutar_cita1 = any(k in inst_lower for k in ["margen", "rentabilidad", "ganancia", "35%", "1", "primera", "verde", "utilidad", "costo"])
+    ejecutar_cita2 = any(k in inst_lower for k in ["tabla dinamica", "tabla dinámica", "estado", "distribucion", "distribución", "grafico", "gráfico", "circular", "pastel", "2", "segunda", "resumen"])
+    ejecutar_cita3 = any(k in inst_lower for k in ["buscarv", "xlookup", "buscar", "nuevos registros", "agregar 3", "3", "tercera", "busqueda", "búsqueda", "consulta"])
+    ejecutar_todo = any(k in inst_lower for k in ["todas", "todo", "las 3", "las tres", "completo", "todos", "ambas", "general"])
+
+    # Si el usuario pidió "todas" o si mandó un mensaje genérico que no activó ninguna específica:
+    if ejecutar_todo or (not ejecutar_cita1 and not ejecutar_cita2 and not ejecutar_cita3):
+        ejecutar_cita1 = True
+        ejecutar_cita2 = True
+        ejecutar_cita3 = True
+
     # -------------------------------------------------------------
     # 1. CITA 1: ANÁLISIS DE MARGEN Y RENTABILIDAD CON FORMATO CONDICIONAL
     # -------------------------------------------------------------
-    if any(k in inst_lower for k in ["margen", "rentabilidad", "ganancia", "35%"]):
+    if ejecutar_cita1:
         header_row = 1
         col_ventas = None
         col_costo = None
@@ -148,10 +160,16 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
             end_row = ws_data.max_row
 
             for r in range(start_row, end_row + 1):
+                # Si la fila tiene total general, calcular margen sobre totales
+                val_first = str(ws_data.cell(row=r, column=1).value or "").lower()
+                val_cat = str(ws_data.cell(row=r, column=col_categoria or 1).value or "").lower() if col_categoria else ""
+                es_total = "total" in val_first or "total" in val_cat
+
                 if ws_data.cell(row=r, column=col_ventas).value is not None:
                     cell_g = ws_data.cell(row=r, column=col_ganancia)
-                    if not cell_g.value or str(cell_g.value).strip() == "" or str(cell_g.value).lower() == "none":
-                        cell_g.value = f"={v_letter}{r}-{c_letter}{r}"
+                    if not es_total:
+                        if not cell_g.value or str(cell_g.value).strip() == "" or str(cell_g.value).lower() == "none":
+                            cell_g.value = f"={v_letter}{r}-{c_letter}{r}"
                     cell_g.number_format = '"$"#,##0.00'
                     cell_g.alignment = align_right
                     cell_g.border = thin_border
@@ -170,14 +188,41 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
             margen_range = f"{m_letter}{start_row}:{m_letter}{end_row}"
             ws_data.conditional_formatting.add(margen_range, rule_35)
 
+            # Reflejar también en pestaña Dashboard si existe
+            if "Dashboard" in wb.sheetnames:
+                ws_d = wb["Dashboard"]
+                # 1. Agregar tarjeta de Margen Global en fila 5 y 6
+                ws_d.cell(row=5, column=9, value="Margen Global").font = font_header
+                ws_d.cell(row=5, column=9).fill = fill_navy
+                ws_d.cell(row=5, column=9).alignment = align_center
+
+                c_m_kpi = ws_d.cell(row=6, column=9, value="=IFERROR(E6/C6, 0)")
+                c_m_kpi.font = Font(name="Calibri", size=13, bold=True, color="1F4E78")
+                c_m_kpi.alignment = align_center
+                c_m_kpi.number_format = "0.0%"
+                c_m_kpi.border = thin_border
+
+                # 2. Agregar columna % Margen en tabla de categorías
+                if ws_d.cell(row=10, column=5).value is not None:
+                    c_h_m = ws_d.cell(row=10, column=6, value="% Margen")
+                    c_h_m.font = font_header
+                    c_h_m.fill = fill_sub_navy
+                    c_h_m.alignment = align_center
+                    for r_c in range(11, 16):
+                        c_cell = ws_d.cell(row=r_c, column=6, value=f"=IFERROR(D{r_c}/C{r_c}, 0)")
+                        c_cell.font = font_bold
+                        c_cell.alignment = align_right
+                        c_cell.number_format = "0.0%"
+                        c_cell.border = thin_border
+
             acciones_realizadas.append(
-                f"✅ **Columna '% Margen de Ganancia' calculada** en pestaña '{target_sheet_name}' con fórmula viva `={g_letter}#/{v_letter}#` y formato condicional en **verde para márgenes > 35%**."
+                f"✅ **Cita 1 Completada:** Columna '% Margen de Ganancia' calculada con fórmulas vivas `={g_letter}#/{v_letter}#`, formato condicional **verde > 35%** en '{target_sheet_name}' y tarjeta de Margen Global añadida a Dashboard."
             )
 
     # -------------------------------------------------------------
     # 2. CITA 2: CREACIÓN DE TABLA DINÁMICA / RESUMEN Y GRÁFICO CIRCULAR
     # -------------------------------------------------------------
-    if any(k in inst_lower for k in ["tabla dinamica", "tabla dinámica", "estado", "distribucion", "distribución", "grafico", "gráfico", "circular", "pastel"]):
+    if ejecutar_cita2:
         resumen_sheet_name = "Resumen_Estado_Ordenes"
         if resumen_sheet_name in wb.sheetnames:
             del wb[resumen_sheet_name]
@@ -272,7 +317,7 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
     # -------------------------------------------------------------
     # 3. CITA 3: BÚSQUEDA CRUZADA (BUSCARV / XLOOKUP) Y NUEVOS REGISTROS
     # -------------------------------------------------------------
-    if any(k in inst_lower for k in ["buscarv", "xlookup", "buscar", "nuevos registros", "agregar 3"]):
+    if ejecutar_cita3:
         # Agregar sección de búsqueda interactiva
         # Buscar o crear hoja Dashboard
         ws_dash = None
@@ -313,7 +358,7 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
         c_est.border = thin_border
 
         acciones_realizadas.append(
-            f"✅ **Módulo de Búsqueda Cruzada implementado** con fórmulas vivas `=VLOOKUP(ID, {target_sheet_name}, Columna, FALSO)` para consultar Cliente, Monto y Estado en tiempo real."
+            f"✅ **Cita 3 Completada:** Módulo de Búsqueda Dinámica implementado en 'Dashboard' con fórmulas vivas `=VLOOKUP(ID, '{target_sheet_name}', Columna, FALSO)` para consultar Cliente, Monto y Estado en tiempo real."
         )
 
     # Autoajustar anchos en hoja de datos
@@ -321,6 +366,18 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
         max_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = openpyxl.utils.get_column_letter(col[0].column)
         ws_data.column_dimensions[col_letter].width = max(max_len + 4, 15)
+
+    # Establecer la pestaña activa y seleccionada para que Excel abra en la hoja de cambios
+    target_active_ws = ws_data
+    if ejecutar_cita2 and not ejecutar_cita1 and "Resumen_Estado_Ordenes" in wb.sheetnames:
+        target_active_ws = wb["Resumen_Estado_Ordenes"]
+    elif ejecutar_cita3 and not ejecutar_cita1 and "Dashboard" in wb.sheetnames:
+        target_active_ws = wb["Dashboard"]
+
+    wb.active = target_active_ws
+    for ws_s in wb.worksheets:
+        if ws_s.views and ws_s.views.sheetView:
+            ws_s.views.sheetView[0].tabSelected = (ws_s == target_active_ws)
 
     output = io.BytesIO()
     wb.save(output)
