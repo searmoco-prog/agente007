@@ -808,12 +808,39 @@ async def download_telegram_file(client: httpx.AsyncClient, file_id: str) -> byt
     file_resp.raise_for_status()
     return file_resp.content
 
-def parse_uploaded_file(file_bytes: bytes, file_name: str) -> pd.DataFrame:
+def parse_uploaded_file(file_bytes: bytes, file_name: str) -> tuple[pd.DataFrame, list, str]:
     """Lee y normaliza cualquier archivo subido (.xlsx, .xls, .csv, .tsv) a un DataFrame universal."""
     file_name_lower = file_name.lower()
+    sheet_names = []
+    target_sheet = ""
+
     if file_name_lower.endswith(('.xlsx', '.xls')):
-        df = pd.read_excel(io.BytesIO(file_bytes))
+        wb_in = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        sheet_names = wb_in.sheetnames
+
+        # Buscar la hoja que contenga la tabla de datos real (Base_Datos, Datos, Data, Ventas, etc.)
+        target_sheet = sheet_names[0]
+        for s in sheet_names:
+            if any(k in s.lower() for k in ['base', 'datos', 'data', 'ventas', 'detalle', 'registros', 'orders']):
+                target_sheet = s
+                break
+
+        ws_target = wb_in[target_sheet]
+
+        # Detectar la fila de encabezados reales (donde haya al menos 2 celdas con texto descriptivo)
+        header_row_idx = 0
+        for r_idx, row in enumerate(ws_target.iter_rows(values_only=True)):
+            non_empty = [str(c).strip() for c in row if c is not None and str(c).strip() != '']
+            if len(non_empty) >= 2 and any(k in " ".join(non_empty).lower() for k in ['id', 'venta', 'monto', 'costo', 'ticket', 'fecha', 'cliente', 'estado']):
+                header_row_idx = r_idx
+                break
+            elif len(non_empty) >= 3 and header_row_idx == 0:
+                header_row_idx = r_idx
+
+        df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=target_sheet, header=header_row_idx)
     elif file_name_lower.endswith(('.csv', '.txt', '.tsv')):
+        sheet_names = ["Hoja1"]
+        target_sheet = "Hoja1"
         try:
             sep = '\t' if file_name_lower.endswith('.tsv') else ','
             df = pd.read_csv(io.BytesIO(file_bytes), sep=sep, encoding='utf-8', engine='python')
@@ -854,13 +881,13 @@ def parse_uploaded_file(file_bytes: bytes, file_name: str) -> pd.DataFrame:
     if 'status_normalizado' not in df.columns:
         status_candidates = [c for c in df.columns if any(k in c.lower() for k in ['status', 'estatus', 'estado', 'resuelto', 'resolu'])]
         if status_candidates:
-            df['status_normalizado'] = df[status_candidates[0]].astype(str).str.strip().str.upper().apply(
-                lambda s: 'RESUELTO' if any(w in s.lower() for w in ['resuelto', 'cerrado', 'ok', 'atendido', 'exito', 'activo']) else 'PENDIENTE'
+            df['status_normalizado'] = df[status_candidates[0]].fillna('').astype(str).apply(
+                lambda s: 'RESUELTO' if any(w in str(s).lower() for w in ['resuelto', 'cerrado', 'ok', 'atendido', 'exito', 'activo', 'completado']) else 'PENDIENTE'
             )
         else:
             df['status_normalizado'] = 'RESUELTO'
 
-    return df
+    return df, sheet_names, target_sheet
 
 async def send_chart_to_user(client: httpx.AsyncClient, chat_id: int, df: pd.DataFrame = None, label: str = ""):
     """Envía la gráfica oficial de base o del archivo activo del usuario."""
@@ -1018,16 +1045,19 @@ async def run_bot():
 
                         try:
                             file_bytes = await download_telegram_file(client, file_id)
-                            df_uploaded = parse_uploaded_file(file_bytes, file_name)
+                            df_uploaded, sheets_found, sheet_active = parse_uploaded_file(file_bytes, file_name)
                             DATAFRAME_SESION[chat_id] = {
                                 "df": df_uploaded,
                                 "filename": file_name,
                                 "total_filas": len(df_uploaded),
+                                "sheets": sheets_found,
+                                "active_sheet": sheet_active,
                                 "raw_bytes": file_bytes
                             }
 
                             total_f = len(df_uploaded)
-                            col_list = ", ".join(list(df_uploaded.columns)[:6])
+                            col_list = ", ".join(list(df_uploaded.columns)[:8])
+                            sheets_str = ", ".join(sheets_found) if sheets_found else "Hoja1"
 
                             if caption:
                                 texto = caption
@@ -1042,14 +1072,15 @@ async def run_bot():
                             else:
                                 msg_confirm = (
                                     f"✅ **¡Archivo '{file_name}' cargado con éxito!** 🫡\n\n"
-                                    f"• 📊 **Registros detectados:** {total_f} filas\n"
-                                    f"• 📑 **Columnas clave:** {col_list}\n\n"
-                                    "¿Qué desea que haga con este archivo, jefe?\n"
-                                    "👉 *'Calcula el margen y resalta en verde > 35%'*\n"
-                                    "👉 *'Genera tabla dinámica y gráfico circular por Estado'*\n"
-                                    "👉 *'Agrega módulo de búsqueda con BUSCARV / XLOOKUP'*\n"
-                                    "👉 *'Fíltralo por [palabra] o sácame la gráfica'*\n\n"
-                                    "💡 *(Para volver a la base oficial de Google Sheet, escribe /reset o 'base oficial')*"
+                                    f"• 📑 **Pestañas detectadas:** {sheets_str}\n"
+                                    f"• 📊 **Pestaña analizada:** '{sheet_active}' ({total_f} registros)\n"
+                                    f"• 🏷️ **Columnas detectadas:** {col_list}\n\n"
+                                    "¿Qué operación deseas ejecutar, jefe?\n"
+                                    "1️⃣ *Calcula el margen y resalta en verde > 35%* (o escribe **1**)\n"
+                                    "2️⃣ *Genera tabla dinámica y gráfico circular por Estado* (o escribe **2**)\n"
+                                    "3️⃣ *Agrega módulo de búsqueda con BUSCARV / XLOOKUP* (o escribe **3**)\n"
+                                    "⭐ *Aplica las 3 transformaciones juntas* (o escribe **todas**)\n\n"
+                                    "💡 *(Para volver a la base oficial de Google Sheet, escribe /reset)*"
                                 )
                                 await client.post(
                                     f"{BASE_URL}/sendMessage",
@@ -1124,6 +1155,21 @@ async def run_bot():
                             )
                             continue
 
+                    # Normalización de intenciones numéricas / lenguaje natural para archivos cargados
+                    t_clean = texto_lower.strip()
+                    if t_clean in ['1', 'opcion 1', 'opción 1', 'la 1', 'la primera', 'la primera opcion', 'la primera opción', 'primera opcion', 'primera opción']:
+                        texto = "Calcula el margen y resalta en verde > 35%"
+                        texto_lower = texto.lower()
+                    elif t_clean in ['2', 'opcion 2', 'opción 2', 'la 2', 'la segunda', 'la segunda opcion', 'la segunda opción', 'segunda opcion', 'segunda opción']:
+                        texto = "Genera tabla dinámica y gráfico circular por Estado"
+                        texto_lower = texto.lower()
+                    elif t_clean in ['3', 'opcion 3', 'opción 3', 'la 3', 'la tercera', 'la tercera opcion', 'la tercera opción', 'tercera opcion', 'tercera opción']:
+                        texto = "Agrega módulo de búsqueda con BUSCARV / XLOOKUP"
+                        texto_lower = texto.lower()
+                    elif t_clean in ['todas', 'todo', 'las 3', 'haz todo', 'todas las opciones', 'las tres', 'aplica todo']:
+                        texto = "Calcula el margen y resalta en verde > 35%, genera tabla dinámica con gráfico circular por Estado y agrega módulo de búsqueda con BUSCARV"
+                        texto_lower = texto.lower()
+
                     # Manejo de Transformaciones de Analista Universal sobre archivo subido
                     es_peticion_universal = any(k in texto_lower for k in [
                         'margen', 'rentabilidad', 'buscarv', 'xlookup', 'tabla dinamica', 'tabla dinámica',
@@ -1157,6 +1203,11 @@ async def run_bot():
                             continue
                         except Exception as e_univ:
                             print(f"Error procesando universal excel: {e_univ}", flush=True)
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": chat_id, "text": f"⚠️ Detalle al procesar '{f_name}': {str(e_univ)}", "reply_markup": BOTONES_ACCIONES}
+                            )
+                            continue
 
                     # 🛡️ CAPA 0: ESCUDO DE SEGURIDAD PERIMETRAL (Guardrail Anti-Jailbreak)
                     if check_perimeter_security(texto):

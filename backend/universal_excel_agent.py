@@ -47,7 +47,21 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
     
     Retorna: (excel_bytes, filename_generado, mensaje_explicativo)
     """
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
+    # Si viene en formato CSV o texto plano, convertir a Workbook
+    if not file_bytes.startswith(b'PK\x03\x04'):
+        wb = openpyxl.Workbook()
+        ws_csv = wb.active
+        ws_csv.title = "Base_Datos"
+        try:
+            df_csv = pd.read_csv(io.BytesIO(file_bytes), encoding='utf-8')
+        except Exception:
+            df_csv = pd.read_csv(io.BytesIO(file_bytes), encoding='latin-1')
+        ws_csv.append(list(df_csv.columns))
+        for row in df_csv.itertuples(index=False, name=None):
+            ws_csv.append(list(row))
+    else:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
+
     wb.calculation.calcMode = "auto"
     wb.calculation.fullCalcOnLoad = True
     
@@ -66,11 +80,11 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
     align_right = Alignment(horizontal="right", vertical="center")
     align_left = Alignment(horizontal="left", vertical="center")
 
-    # Localizar pestaña de datos (Base_Datos o la primera disponible)
+    # Localizar pestaña de datos (Base_Datos o la primera con datos)
     ws_data = None
     target_sheet_name = None
     for s in wb.sheetnames:
-        if any(k in s.lower() for k in ["base", "datos", "data", "ventas"]):
+        if any(k in s.lower() for k in ["base", "datos", "data", "ventas", "detalle", "registros"]):
             ws_data = wb[s]
             target_sheet_name = s
             break
@@ -82,7 +96,6 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
     # 1. CITA 1: ANÁLISIS DE MARGEN Y RENTABILIDAD CON FORMATO CONDICIONAL
     # -------------------------------------------------------------
     if any(k in inst_lower for k in ["margen", "rentabilidad", "ganancia", "35%"]):
-        # Buscar la fila de encabezados en la hoja de datos
         header_row = 1
         col_ventas = None
         col_costo = None
@@ -91,19 +104,18 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
 
         for r in range(1, min(ws_data.max_row + 1, 20)):
             for c in range(1, ws_data.max_column + 1):
-                val = str(ws_data.cell(row=r, column=c).value or "").lower()
-                if "monto" in val or "ventas" in val:
+                val = str(ws_data.cell(row=r, column=c).value or "").lower().strip()
+                if ("monto" in val or "ventas" in val or "ingreso" in val or "venta" in val) and "id" not in val:
                     col_ventas = c
                     header_row = r
-                elif "costo" in val:
+                elif "costo" in val or "gasto" in val:
                     col_costo = c
-                elif "ganancia" in val:
+                elif "ganancia" in val or "utilidad" in val or "beneficio" in val:
                     col_ganancia = c
                 elif "categoria" in val or "categoría" in val:
                     col_categoria = c
 
         if col_ventas and col_costo:
-            # Si no existe columna Ganancia, la creamos
             max_c = ws_data.max_column
             if not col_ganancia:
                 col_ganancia = max_c + 1
@@ -112,14 +124,21 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
                 c_head.fill = fill_navy
                 c_head.alignment = align_center
 
-            # Agregar columna "% Margen de Ganancia"
-            col_margen = ws_data.max_column + 1
-            c_margen_head = ws_data.cell(row=header_row, column=col_margen, value="% Margen de Ganancia")
-            c_margen_head.font = font_header
-            c_margen_head.fill = fill_sub_navy
-            c_margen_head.alignment = align_center
+            # Agregar columna "% Margen de Ganancia" si no existe
+            col_margen = None
+            for c in range(1, ws_data.max_column + 1):
+                val_c = str(ws_data.cell(row=header_row, column=c).value or "").lower()
+                if "margen" in val_c:
+                    col_margen = c
+                    break
 
-            # Llenar fórmulas vivas fila por fila
+            if not col_margen:
+                col_margen = ws_data.max_column + 1
+                c_margen_head = ws_data.cell(row=header_row, column=col_margen, value="% Margen de Ganancia")
+                c_margen_head.font = font_header
+                c_margen_head.fill = fill_sub_navy
+                c_margen_head.alignment = align_center
+
             v_letter = openpyxl.utils.get_column_letter(col_ventas)
             c_letter = openpyxl.utils.get_column_letter(col_costo)
             g_letter = openpyxl.utils.get_column_letter(col_ganancia)
@@ -129,17 +148,14 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
             end_row = ws_data.max_row
 
             for r in range(start_row, end_row + 1):
-                # Validar que la fila tenga datos
                 if ws_data.cell(row=r, column=col_ventas).value is not None:
-                    # Fórmula de Ganancia: =Ventas - Costo
                     cell_g = ws_data.cell(row=r, column=col_ganancia)
-                    if not cell_g.value or str(cell_g.value).strip() == "":
+                    if not cell_g.value or str(cell_g.value).strip() == "" or str(cell_g.value).lower() == "none":
                         cell_g.value = f"={v_letter}{r}-{c_letter}{r}"
                     cell_g.number_format = '"$"#,##0.00'
                     cell_g.alignment = align_right
                     cell_g.border = thin_border
 
-                    # Fórmula de % Margen: =Ganancia / Ventas (con SI.ERROR)
                     cell_m = ws_data.cell(row=r, column=col_margen)
                     cell_m.value = f"=IFERROR({g_letter}{r}/{v_letter}{r}, 0)"
                     cell_m.number_format = "0.0%"
@@ -155,7 +171,7 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
             ws_data.conditional_formatting.add(margen_range, rule_35)
 
             acciones_realizadas.append(
-                f"✅ **Columna '% Margen de Ganancia' calculada** con fórmula viva `={g_letter}#/{v_letter}#` y formato condicional en **verde para márgenes > 35%**."
+                f"✅ **Columna '% Margen de Ganancia' calculada** en pestaña '{target_sheet_name}' con fórmula viva `={g_letter}#/{v_letter}#` y formato condicional en **verde para márgenes > 35%**."
             )
 
     # -------------------------------------------------------------
@@ -281,23 +297,23 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
         c_search.alignment = align_center
 
         ws_dash.cell(row=row_b + 4, column=1, value="Nombre del Cliente (BUSCARV):").font = font_bold
-        c_cli = ws_dash.cell(row=row_b + 4, column=2, value=f'=IFERROR(VLOOKUP(B{row_b + 2}, {target_sheet_name}!A:H, 3, FALSE), "No Encontrado")')
+        c_cli = ws_dash.cell(row=row_b + 4, column=2, value=f'=IFERROR(VLOOKUP(B{row_b + 2}, \'{target_sheet_name}\'!A:H, 3, FALSE), "No Encontrado")')
         c_cli.font = font_bold
         c_cli.border = thin_border
 
         ws_dash.cell(row=row_b + 5, column=1, value="Monto de Ventas (BUSCARV):").font = font_bold
-        c_mto = ws_dash.cell(row=row_b + 5, column=2, value=f'=IFERROR(VLOOKUP(B{row_b + 2}, {target_sheet_name}!A:H, 5, FALSE), 0)')
+        c_mto = ws_dash.cell(row=row_b + 5, column=2, value=f'=IFERROR(VLOOKUP(B{row_b + 2}, \'{target_sheet_name}\'!A:H, 5, FALSE), 0)')
         c_mto.font = font_bold
         c_mto.number_format = '"$"#,##0.00'
         c_mto.border = thin_border
 
         ws_dash.cell(row=row_b + 6, column=1, value="Estado de la Orden (BUSCARV):").font = font_bold
-        c_est = ws_dash.cell(row=row_b + 6, column=2, value=f'=IFERROR(VLOOKUP(B{row_b + 2}, {target_sheet_name}!A:H, 8, FALSE), "N/A")')
+        c_est = ws_dash.cell(row=row_b + 6, column=2, value=f'=IFERROR(VLOOKUP(B{row_b + 2}, \'{target_sheet_name}\'!A:H, 8, FALSE), "N/A")')
         c_est.font = font_bold
         c_est.border = thin_border
 
         acciones_realizadas.append(
-            f"✅ **Módulo de Búsqueda Cruzada implementado** con fórmulas vivas `=VLOOKUP(ID, Base_Datos, Columna, FALSO)` para consultar Cliente, Monto y Estado en tiempo real."
+            f"✅ **Módulo de Búsqueda Cruzada implementado** con fórmulas vivas `=VLOOKUP(ID, {target_sheet_name}, Columna, FALSO)` para consultar Cliente, Monto y Estado en tiempo real."
         )
 
     # Autoajustar anchos en hoja de datos
@@ -311,7 +327,8 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
     output.seek(0)
     excel_bytes = output.getvalue()
 
-    nombre_final = f"Analisis_Universal_{file_name}"
+    nombre_base = file_name.rsplit('.', 1)[0]
+    nombre_final = f"Analisis_Universal_{nombre_base}.xlsx"
     resumen_acciones = "\n".join(acciones_realizadas) if acciones_realizadas else "✅ Archivo procesado y recalculado con éxito."
 
     mensaje_respuesta = (
