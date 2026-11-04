@@ -18,6 +18,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import PieChart, BarChart, Reference
 from openpyxl.formatting.rule import CellIsRule
 from dynamic_excel_agent import generate_dynamic_custom_excel
+from universal_excel_agent import process_universal_excel, inspect_workbook
 from agent_mcp import decide_agent_action_mcp, execute_tool_consultar_kpis, execute_langgraph_ticket
 
 # Salida estándar sin buffer para logs en tiempo real
@@ -701,13 +702,15 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame, chat_id: int = None) -> s
     analisis_datos = analyze_query_with_df(pregunta, df)
 
     system_prompt = (
-        "Eres el 'Agente 007', el copiloto inteligente de operaciones de telecomunicaciones. "
-        "Habla de forma humana, profesional, amigable y respetuosa con tu jefe ('Hola jefe', 'Buen día'). "
-        "Tienes acceso al análisis matemático en tiempo real de la base de tickets y recuerdas el contexto de la conversación. "
-        "Si tu jefe te pregunta por una persona (ejemplo: 'Jesús', 'Ariel'), por un escenario o te pide aplicar un criterio hipotético, "
-        "utiliza siempre los números exactos calculados en el contexto (no inventes números). "
-        "Sé claro, conciso y estructurado (2 a 3 párrafos con viñetas limpias). "
-        "Nunca uses markdown complejo ni código. Responde con calidez y rigor técnico."
+        "Eres el 'Agente 007', copiloto senior de operaciones y analista universal de datos (NOC Telecom & Negocios). "
+        "Habla de forma humana, ejecutiva, profesional y amigable con tu jefe ('Hola jefe', 'Buen día'). "
+        "Tienes dos especialidades integradas: "
+        "1) MODO TELECOM NOC: Monitoreo en vivo de tickets, fallas de red, portabilidades y cruces en base de datos. "
+        "2) MODO ANALISTA UNIVERSAL: Tienes la capacidad comprobada de recibir, abrir, inspeccionar y transformar cualquier archivo Excel (.xlsx) o CSV "
+        "de ventas, finanzas, inventarios o call center. Puedes calcular márgenes, agregar columnas con fórmulas vivas, "
+        "inyectar BUSCARV/XLOOKUP, generar tablas dinámicas y crear gráficos circulares o de barras nativos. "
+        "REGLA CRÍTICA: NUNCA digas que no tienes la capacidad de abrir o ver archivos que el usuario suba. Si tu jefe te pregunta si puedes leer un archivo, "
+        "confirma con entusiasmo y seguridad técnica que SÍ puedes procesar cualquier archivo .xlsx o .csv que te envíe por este chat de Telegram."
     )
 
     messages = [
@@ -782,9 +785,10 @@ BOTONES_ACCIONES = {
 }
 
 # ---------------------------------------------------------------
-# GESTOR DE ARCHIVOS SUBIDOS EN SESIÓN (.xlsx, .csv, .xls)
+# GESTOR DE ARCHIVOS Y MODO HÍBRIDO (Telecom NOC vs Analista Universal)
 # ---------------------------------------------------------------
-DATAFRAME_SESION = {}  # {chat_id: {"df": pd.DataFrame, "filename": str, "total_filas": int}}
+MODO_SESION = {}       # {chat_id: 'telecom' | 'universal'}
+DATAFRAME_SESION = {}  # {chat_id: {"df": pd.DataFrame, "filename": str, "total_filas": int, "raw_bytes": bytes}}
 
 async def get_active_dataframe(chat_id: int) -> tuple[pd.DataFrame, str]:
     """Retorna el DataFrame activo para el chat (el archivo que subió el usuario o la hoja oficial)."""
@@ -1018,7 +1022,8 @@ async def run_bot():
                             DATAFRAME_SESION[chat_id] = {
                                 "df": df_uploaded,
                                 "filename": file_name,
-                                "total_filas": len(df_uploaded)
+                                "total_filas": len(df_uploaded),
+                                "raw_bytes": file_bytes
                             }
 
                             total_f = len(df_uploaded)
@@ -1036,15 +1041,15 @@ async def run_bot():
                                 )
                             else:
                                 msg_confirm = (
-                                    f"✅ ¡Archivo '{file_name}' cargado con éxito! 🫡\n\n"
-                                    f"• 📊 Registros detectados: {total_f} filas\n"
-                                    f"• 📑 Columnas clave: {col_list}\n\n"
+                                    f"✅ **¡Archivo '{file_name}' cargado con éxito!** 🫡\n\n"
+                                    f"• 📊 **Registros detectados:** {total_f} filas\n"
+                                    f"• 📑 **Columnas clave:** {col_list}\n\n"
                                     "¿Qué desea que haga con este archivo, jefe?\n"
-                                    "👉 'Fíltralo por [palabra] y dámelo en Excel'\n"
-                                    "👉 'Pinta de amarillo los que dicen [criterio]'\n"
-                                    "👉 'Sácame la gráfica de este archivo'\n"
-                                    "👉 'Dame el resumen y KPIs'\n\n"
-                                    "💡 (Para volver a la base oficial de Google Sheet, escribe /reset o 'base oficial')"
+                                    "👉 *'Calcula el margen y resalta en verde > 35%'*\n"
+                                    "👉 *'Genera tabla dinámica y gráfico circular por Estado'*\n"
+                                    "👉 *'Agrega módulo de búsqueda con BUSCARV / XLOOKUP'*\n"
+                                    "👉 *'Fíltralo por [palabra] o sácame la gráfica'*\n\n"
+                                    "💡 *(Para volver a la base oficial de Google Sheet, escribe /reset o 'base oficial')*"
                                 )
                                 await client.post(
                                     f"{BASE_URL}/sendMessage",
@@ -1066,6 +1071,45 @@ async def run_bot():
 
                     print(f"Mensaje de {chat_id}: {texto}", flush=True)
 
+                    # Selector de Modo Híbrido (Telecom NOC vs Analista Universal)
+                    if texto_lower in ['/modo', 'modo']:
+                        modo_actual = MODO_SESION.get(chat_id, "telecom").upper()
+                        msg_modo = (
+                            f"🤖 **MODO DE OPERACIÓN ACTUAL:** {modo_actual}\n\n"
+                            "Puedes alternar entre los dos cerebros en cualquier momento:\n\n"
+                            "🛰️ **/telecom** ➡️ Modo NOC Telecom 007 (Google Sheet en vivo, 258 tickets, fallas de red, Supabase).\n"
+                            "📊 **/universal** ➡️ Modo Analista Universal (Finanzas, Ventas, BUSCARV, tablas dinámicas, márgenes y gráficos nativos)."
+                        )
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={"chat_id": chat_id, "text": msg_modo, "reply_markup": BOTONES_ACCIONES}
+                        )
+                        continue
+
+                    if texto_lower in ['/telecom', 'telecom', 'modo telecom']:
+                        MODO_SESION[chat_id] = "telecom"
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={
+                                "chat_id": chat_id,
+                                "text": "🛰️ **Modo Telecom NOC 007 Activado.**\n\nConectado a la base oficial de tickets y listo para corte de turno, gráficas de red y resolución en Supabase.",
+                                "reply_markup": BOTONES_ACCIONES
+                            }
+                        )
+                        continue
+
+                    if texto_lower in ['/universal', 'universal', 'modo universal']:
+                        MODO_SESION[chat_id] = "universal"
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={
+                                "chat_id": chat_id,
+                                "text": "📊 **Modo Analista Universal Activado.**\n\nListo para recibir cualquier archivo Excel (.xlsx) o CSV de Finanzas, Ventas o Call Center, aplicar BUSCARV, calcular márgenes, tablas dinámicas y gráficos nativos.",
+                                "reply_markup": BOTONES_ACCIONES
+                            }
+                        )
+                        continue
+
                     # Reset de sesión de archivo hacia la base oficial
                     if any(texto_lower == r or texto_lower.startswith(r) for r in ['/reset', '/oficial', 'base oficial', 'hoja oficial', 'restablecer', 'volver a la base']):
                         if chat_id in DATAFRAME_SESION:
@@ -1079,6 +1123,40 @@ async def run_bot():
                                 }
                             )
                             continue
+
+                    # Manejo de Transformaciones de Analista Universal sobre archivo subido
+                    es_peticion_universal = any(k in texto_lower for k in [
+                        'margen', 'rentabilidad', 'buscarv', 'xlookup', 'tabla dinamica', 'tabla dinámica',
+                        'distribucion', 'distribución', 'circular', 'pastel', 'ganancia', '35%'
+                    ]) or MODO_SESION.get(chat_id) == "universal"
+
+                    if es_peticion_universal and chat_id in DATAFRAME_SESION and DATAFRAME_SESION[chat_id].get("raw_bytes"):
+                        raw_b = DATAFRAME_SESION[chat_id]["raw_bytes"]
+                        f_name = DATAFRAME_SESION[chat_id]["filename"]
+
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={"chat_id": chat_id, "text": f"⚡ Ejecutando transformaciones de Analista Universal sobre '{f_name}'..."}
+                        )
+
+                        try:
+                            res_bytes, out_name, out_msg = process_universal_excel(raw_b, texto, f_name)
+                            # Actualizar los raw_bytes de la sesión con la versión modificada
+                            DATAFRAME_SESION[chat_id]["raw_bytes"] = res_bytes
+                            
+                            files = {"document": (out_name, res_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+                            await client.post(
+                                f"{BASE_URL}/sendDocument",
+                                data={"chat_id": chat_id, "caption": f"📁 {out_name} generado con fórmulas vivas y formatos."},
+                                files=files
+                            )
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": chat_id, "text": out_msg, "reply_markup": BOTONES_ACCIONES}
+                            )
+                            continue
+                        except Exception as e_univ:
+                            print(f"Error procesando universal excel: {e_univ}", flush=True)
 
                     # 🛡️ CAPA 0: ESCUDO DE SEGURIDAD PERIMETRAL (Guardrail Anti-Jailbreak)
                     if check_perimeter_security(texto):

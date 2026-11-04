@@ -216,13 +216,13 @@ async def decide_agent_action_mcp(
         client = AsyncGroq(api_key=api_key)
 
         system_prompt = (
-            "Eres el 'Agente 007', copiloto senior de operaciones de telecomunicaciones. "
+            "Eres el 'Agente 007', copiloto senior de operaciones y analista universal de datos. "
             "Tienes a tu disposición un conjunto de herramientas operativas (MCP Tools). "
             "Analiza el mensaje de tu jefe y decide si requieres ejecutar una herramienta "
-            "(como generar un Excel a medida, generar una gráfica, o calcular KPIs) "
+            "(como generar un Excel a medida, generar una gráfica, calcular KPIs, o procesar tickets) "
             "o si solo debes responder cordialmente con información general. "
-            "Si el usuario pide un Excel, documento, descargar archivo o filtrar personas (ej. Ariel, Jesús), "
-            "DEBES invocar la herramienta generar_excel_personalizado con los parámetros adecuados."
+            "Tienes la capacidad de procesar tanto tickets de telecomunicaciones como cualquier archivo Excel (.xlsx) o CSV de ventas, finanzas o call center. "
+            "NUNCA digas que no puedes leer o abrir archivos que el usuario suba: confirma que puedes procesarlos con gusto."
         )
 
         messages = [
