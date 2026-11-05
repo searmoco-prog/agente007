@@ -11,6 +11,8 @@ Arquitectura Zero-Data Leak (Aislamiento de Metadatos):
 import os
 import io
 import re
+import math
+import datetime
 import sys
 import traceback
 import pandas as pd
@@ -165,6 +167,9 @@ def execute_safe_excel_transformation(file_bytes: bytes, code_str: str, file_nam
     local_env = {
         "wb": wb,
         "openpyxl": openpyxl,
+        "re": re,
+        "math": math,
+        "datetime": datetime,
         "Font": openpyxl.styles.Font,
         "PatternFill": openpyxl.styles.PatternFill,
         "Alignment": openpyxl.styles.Alignment,

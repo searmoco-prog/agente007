@@ -119,7 +119,7 @@ async def code_generator_node(state: AgentState) -> Dict[str, Any]:
         "Tu única tarea es generar un script en Python usando openpyxl y pandas para transformar un archivo Excel en memoria.\n"
         "Reglas estrictas:\n"
         "1. El archivo está cargado como objeto openpyxl llamado 'wb' (wb = openpyxl.load_workbook(io.BytesIO(file_bytes)) ya existe).\n"
-        "2. NUNCA inventes columnas ni uses openpyxl.load_workbook ni wb.save() al final. El entorno ya las maneja.\n"
+        "2. NUNCA inventes columnas ni uses openpyxl.load_workbook ni wb.save() al final. El entorno ya precarga: 'wb', 'openpyxl', 'pd', 're', 'math', 'datetime'.\n"
         "3. SIEMPRE inicializa todas las variables antes de usarlas en bucles o condicionales.\n"
         "4. Limpia strings numéricos (quita '$', ',', '%' y espacios) antes de convertirlos a float.\n"
         "5. MANEJO DE PORCENTAJES EN EXCEL: En Excel, los porcentajes casi siempre se almacenan como decimales entre 0 y 1 (por ejemplo, 50% es 0.50, 35% es 0.35). Al comparar por un porcentaje como 50%, comprueba siempre si el valor supera 50 O si está entre 0 y 1 superando 0.50: ej. `(val > 50 or (val <= 1.0 and val > 0.50))`.\n"
@@ -306,5 +306,12 @@ async def run_agent_graph(file_bytes: bytes, instruction: str, file_name: str = 
             final_state.get("graph_history", [])
         )
     else:
-        err = final_state.get("error_message", "Error desconocido durante la ejecución del grafo.")
-        raise RuntimeError(f"El Agente LangGraph no pudo completar la instrucción: {err}")
+        # Mecanismo de recuperación de seguridad (Fallback transparente)
+        try:
+            res_b, out_f, sum_m = process_universal_excel(file_bytes, instruction, file_name)
+            history = list(final_state.get("graph_history", []))
+            history.append("fallback_recovery: Resuelto mediante motor determinista de respaldo")
+            return res_b, out_f, sum_m, history
+        except Exception:
+            err = final_state.get("error_message", "Error desconocido durante la ejecución del grafo.")
+            raise RuntimeError(f"El Agente LangGraph no pudo completar la instrucción: {err}")
