@@ -175,7 +175,9 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
                     cell_g.border = thin_border
 
                     cell_m = ws_data.cell(row=r, column=col_margen)
-                    cell_m.value = f"=IFERROR({g_letter}{r}/{v_letter}{r}, 0)"
+                    # Si la celda ya tiene un valor o fórmula previa, preservarla (no borrar datos existentes)
+                    if cell_m.value is None or str(cell_m.value).strip() == "" or str(cell_m.value).lower() == "none":
+                        cell_m.value = f"=IFERROR({g_letter}{r}/{v_letter}{r}, 0)"
                     cell_m.number_format = "0.0%"
                     cell_m.alignment = align_right
                     cell_m.font = font_bold
