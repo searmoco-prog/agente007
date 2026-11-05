@@ -19,6 +19,7 @@ from openpyxl.chart import PieChart, BarChart, Reference
 from openpyxl.formatting.rule import CellIsRule
 from dynamic_excel_agent import generate_dynamic_custom_excel
 from universal_excel_agent import process_universal_excel, inspect_workbook
+from universal_code_interpreter import process_any_excel_instruction, fetch_google_sheet_as_excel_bytes
 from agent_mcp import decide_agent_action_mcp, execute_tool_consultar_kpis, execute_langgraph_ticket
 from session_storage import save_user_session, restore_user_session
 
@@ -1215,6 +1216,40 @@ async def run_bot():
                         texto = "Calcula el margen y resalta en verde > 35%, genera tabla dinámica con gráfico circular por Estado y agrega módulo de búsqueda con BUSCARV"
                         texto_lower = texto.lower()
 
+                    # Detección de si el usuario pegó un enlace de Google Sheets
+                    if ("docs.google.com/spreadsheets" in texto) and ("http" in texto):
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={"chat_id": chat_id, "text": "🌐 Detecté un enlace de Google Sheets en vivo. Descargando y convirtiendo a Excel en memoria segura..."}
+                        )
+                        try:
+                            sheet_bytes, sheet_fname = await fetch_google_sheet_as_excel_bytes(texto)
+                            df_up, sheets_f, s_act = parse_uploaded_file(sheet_bytes, sheet_fname)
+                            DATAFRAME_SESION[chat_id] = {
+                                "df": df_up,
+                                "filename": sheet_fname,
+                                "total_filas": len(df_up),
+                                "sheets": sheets_f,
+                                "active_sheet": s_act,
+                                "raw_bytes": sheet_bytes
+                            }
+                            save_user_session(chat_id, "google_sheet_live", sheet_fname, sheet_bytes, sheets_f, s_act, df_up)
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={
+                                    "chat_id": chat_id,
+                                    "text": f"✅ **¡Google Sheet conectado con éxito!** ({len(df_up)} filas detectadas).\n\n¿Qué deseas que le calcule o transforme a tu hoja?",
+                                    "reply_markup": BOTONES_ACCIONES
+                                }
+                            )
+                            continue
+                        except Exception as e_gs:
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": chat_id, "text": f"⚠️ No pude leer el Google Sheet: {e_gs}\nVerifica que el archivo esté compartido públicamente o en modo 'Cualquier persona con el enlace'."}
+                            )
+                            continue
+
                     # Restaurar sesión si la memoria RAM se reinició por inactividad de Render
                     if chat_id not in DATAFRAME_SESION:
                         try:
@@ -1247,7 +1282,17 @@ async def run_bot():
                         )
 
                         try:
-                            res_bytes, out_name, out_msg = process_universal_excel(raw_b, texto, f_name)
+                            # Si es una de las 3 opciones principales o variantes, usar el motor universal optimizado
+                            es_estandar = any(k in texto_lower for k in [
+                                'margen', 'rentabilidad', 'buscarv', 'xlookup', 'tabla dinamica', 'tabla dinámica',
+                                'distribucion', 'distribución', 'circular', 'pastel', '35%', '1', '2', '3', 'todas'
+                            ])
+                            if es_estandar:
+                                res_bytes, out_name, out_msg = process_universal_excel(raw_b, texto, f_name)
+                            else:
+                                # Instrucción libre infinita con IA Zero-Data Leak
+                                res_bytes, out_name, out_msg = await process_any_excel_instruction(raw_b, texto, f_name)
+
                             # Actualizar los raw_bytes de la sesión con la versión modificada
                             DATAFRAME_SESION[chat_id]["raw_bytes"] = res_bytes
                             save_user_session(chat_id, DATAFRAME_SESION[chat_id].get("file_id", ""), f_name, res_bytes, DATAFRAME_SESION[chat_id].get("sheets", []), DATAFRAME_SESION[chat_id].get("active_sheet", "Base_Datos"), DATAFRAME_SESION[chat_id].get("df"))

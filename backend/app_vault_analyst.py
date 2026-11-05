@@ -15,7 +15,9 @@ import openpyxl
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, CURRENT_DIR)
 
+import asyncio
 from universal_excel_agent import process_universal_excel, inspect_workbook
+from universal_code_interpreter import process_any_excel_instruction, fetch_google_sheet_as_excel_bytes
 
 st.set_page_config(
     page_title="VaultAnalyst AI - Zero-Trust Local",
@@ -73,15 +75,43 @@ st.markdown('<div class="security-badge">🟢 MODO AIR-GAPPED ACTIVO: Procesamie
 st.markdown('<div class="sub-header">Arrastra tu archivo Excel o CSV para analizar márgenes, crear tablas dinámicas, incrustar gráficos y generar fórmulas vivas sin exponer información confidencial.</div>', unsafe_allow_html=True)
 
 # Sección de Carga de Archivos Drag & Drop
-uploaded_file = st.file_uploader(
-    "📁 Arrastra o selecciona tu archivo (.xlsx, .xls, .csv)",
-    type=["xlsx", "xls", "csv"],
-    help="El archivo se procesa estrictamente en la memoria RAM de tu computadora. Ningún byte viaja a la nube."
-)
+tab_local, tab_sheet = st.tabs(["📁 Archivo Local (.xlsx, .csv)", "🌐 Enlace Google Sheets en Vivo"])
 
-if uploaded_file is not None:
-    file_bytes = uploaded_file.read()
-    file_name = uploaded_file.name
+uploaded_file = None
+file_bytes = None
+file_name = "archivo.xlsx"
+
+with tab_local:
+    uploaded_local = st.file_uploader(
+        "Arrastra o selecciona tu archivo (.xlsx, .xls, .csv)",
+        type=["xlsx", "xls", "csv"],
+        help="El archivo se procesa estrictamente en la memoria RAM de tu computadora. Ningún byte viaja a la nube."
+    )
+    if uploaded_local is not None:
+        file_bytes = uploaded_local.read()
+        file_name = uploaded_local.name
+
+with tab_sheet:
+    sheet_url_input = st.text_input(
+        "Pega el enlace público o compartido de Google Sheets:",
+        placeholder="https://docs.google.com/spreadsheets/d/.../edit#gid=0"
+    )
+    if st.button("📥 Importar Google Sheet"):
+        if sheet_url_input:
+            with st.spinner("Descargando Google Sheet en memoria segura..."):
+                try:
+                    file_bytes, file_name = asyncio.run(fetch_google_sheet_as_excel_bytes(sheet_url_input))
+                    st.session_state["sheet_bytes"] = file_bytes
+                    st.session_state["sheet_name"] = file_name
+                    st.success("✅ ¡Google Sheet importado con éxito a memoria local!")
+                except Exception as e_sh:
+                    st.error(f"Error importando Google Sheet: {e_sh}")
+
+if file_bytes is None and "sheet_bytes" in st.session_state:
+    file_bytes = st.session_state["sheet_bytes"]
+    file_name = st.session_state.get("sheet_name", "Google_Sheet_En_Vivo.xlsx")
+
+if file_bytes is not None:
 
     col_info1, col_info2, col_info3 = st.columns(3)
     with col_info1:
@@ -125,11 +155,19 @@ if uploaded_file is not None:
         instruction = custom_instruction
 
     if instruction:
-        with st.spinner("⚡ Procesando localmente en memoria segura (sin internet)..."):
+        with st.spinner("⚡ Procesando localmente con IA Zero-Data Leak..."):
             try:
-                res_bytes, out_name, out_msg = process_universal_excel(file_bytes, instruction, file_name)
+                # Si es una de las 3 opciones predefinidas, usar el motor optimizado determinista
+                if instruction in ["Calcula el margen y resalta en verde > 35%", 
+                                   "Genera tabla dinámica y gráfico circular por Estado", 
+                                   "Agrega módulo de búsqueda con BUSCARV / XLOOKUP",
+                                   "Calcula el margen y resalta en verde > 35%, genera tabla dinámica con gráfico circular por Estado y agrega módulo de búsqueda con BUSCARV"]:
+                    res_bytes, out_name, out_msg = process_universal_excel(file_bytes, instruction, file_name)
+                else:
+                    # Instrucción libre infinita: Code Interpreter
+                    res_bytes, out_name, out_msg = asyncio.run(process_any_excel_instruction(file_bytes, instruction, file_name))
 
-                st.success("✅ **¡Análisis completado con éxito en 0.2 segundos!**")
+                st.success("✅ **¡Análisis completado con éxito!**")
                 st.info(out_msg)
 
                 # Previsualización rápida de datos generados
