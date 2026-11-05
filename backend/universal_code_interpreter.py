@@ -26,7 +26,9 @@ load_dotenv(dotenv_path=os.path.join(_THIS_DIR, "..", ".env"), override=False)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 MODELOS_GROQ = [
     os.getenv("GROQ_MODEL", "").strip(),
-    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-120b",      # Principal (120B de OpenAI en Groq)
+    "qwen/qwen3.8-27b",         # Respaldo (27B de Alibaba Cloud en Groq)
+    "llama-3.3-70b-versatile",  # Motor de código de alta velocidad
     "llama-3.1-8b-instant",
     "mixtral-8x7b-32768",
 ]
