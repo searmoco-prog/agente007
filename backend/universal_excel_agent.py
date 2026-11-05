@@ -189,40 +189,54 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
                 color_solicitado = "amarillo"
             elif any(k in inst_lower for k in ["azul", "blue"]):
                 color_solicitado = "azul"
+            elif any(k in inst_lower for k in ["verde", "green"]):
+                color_solicitado = "verde"
 
-            # Detección de operador: mayor que (arriba de, mayor a) o menor que (abajo de, menor a)
+            # Detección de operador: mayor que (arriba de, mayor a, etc.) o menor que (abajo de, menor a, etc.)
             operador = 'greaterThan'
-            if any(k in inst_lower for k in ["menor", "abajo", "inferior", "<", "debajo"]):
+            if any(k in inst_lower for k in ["menor", "abajo", "inferior", "<", "debajo", "menos"]):
                 operador = 'lessThan'
 
-            # Detección de umbral numérico (ej: 30%, 35%, 0.30, etc.)
+            # Detección de umbral numérico (ej: 30%, 30 porciento, mayor de 50, arriba del 30, etc.)
             umbral_val = 0.35  # default
-            match_pct = re.search(r'(\d+(?:\.\d+)?)\s*%', inst_lower)
+            match_pct = re.search(r'(\d+(?:\.\d+)?)\s*(?:%|porciento|por\s*ciento|pct)', inst_lower)
             if match_pct:
                 umbral_val = float(match_pct.group(1)) / 100.0
             else:
-                match_num = re.search(r'(?:arriba|mayor|superior|menor|abajo)\s*(?:de|a)?\s*(\d+(?:\.\d+)?)', inst_lower)
+                match_num = re.search(r'(?:arriba|arriuab|mayor|superior|superen|mas|más|menor|abajo|menos)\s*(?:del?|al?|que)?\s*(\d+(?:\.\d+)?)', inst_lower)
                 if match_num:
                     val_parsed = float(match_num.group(1))
                     umbral_val = val_parsed / 100.0 if val_parsed > 1.0 else val_parsed
 
-            # Paletas corporativas de formato condicional
+            # Paletas corporativas de formato condicional (colores vivos y claros estilo Excel)
             if color_solicitado == "rojo":
-                cond_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
-                cond_font = Font(color="C00000", bold=True)
-                nombre_color = "rojo suave"
+                cond_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                cond_font = Font(color="9C0006", bold=True)
+                nombre_color = "rojo claro"
             elif color_solicitado == "amarillo":
-                cond_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-                cond_font = Font(color="B25900", bold=True)
-                nombre_color = "amarillo suave"
+                cond_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+                cond_font = Font(color="9C5700", bold=True)
+                nombre_color = "amarillo claro"
             elif color_solicitado == "azul":
-                cond_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+                cond_fill = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
                 cond_font = Font(color="1F4E78", bold=True)
-                nombre_color = "azul suave"
+                nombre_color = "azul claro"
             else:
-                cond_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
-                cond_font = Font(color="375623", bold=True)
-                nombre_color = "verde suave"
+                cond_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+                cond_font = Font(color="006100", bold=True)
+                nombre_color = "verde claro"
+
+            # Limpiar cualquier regla anterior sobre la columna de margen para que no se superpongan
+            try:
+                keys_to_del = [cf for cf in list(ws_data.conditional_formatting._cf_rules.keys()) if m_letter in str(cf.sqref)]
+                for k in keys_to_del:
+                    del ws_data.conditional_formatting._cf_rules[k]
+            except Exception:
+                pass
+
+            # Limpiar rellenos estáticos previos en celdas de margen
+            for r in range(start_row, end_row + 1):
+                ws_data.cell(row=r, column=col_margen).fill = PatternFill(fill_type=None)
 
             rule_cond = CellIsRule(operator=operador, formula=[str(umbral_val)], stopIfTrue=True, fill=cond_fill, font=cond_font)
             margen_range = f"{m_letter}{start_row}:{m_letter}{end_row}"
