@@ -168,6 +168,7 @@ if file_bytes is not None:
                 _inst_low = instruction.lower()
                 _keywords_deterministas = [
                     "margen", "rojo", "verde", "amarillo", "azul", "porciento", "porcentaje",
+                    "semaforo", "semáforo", "traffic light", "colores", "bicolor",
                     "%", "mayor", "menor", "arriba", "abajo", "rentabilidad", "ganancia",
                     "tabla dinamica", "tabla dinámica", "grafico", "gráfico", "circular",
                     "buscarv", "buscar", "xlookup", "estado", "resumen"

@@ -93,7 +93,7 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
         target_sheet_name = ws_data.title
 
     # Determinar qué citas ejecutar
-    ejecutar_cita1 = any(k in inst_lower for k in ["margen", "rentabilidad", "ganancia", "35%", "1", "primera", "verde", "utilidad", "costo"])
+    ejecutar_cita1 = any(k in inst_lower for k in ["margen", "rentabilidad", "ganancia", "35%", "1", "primera", "verde", "rojo", "amarillo", "azul", "semaforo", "semáforo", "utilidad", "costo"])
     ejecutar_cita2 = any(k in inst_lower for k in ["tabla dinamica", "tabla dinámica", "estado", "distribucion", "distribución", "grafico", "gráfico", "circular", "pastel", "2", "segunda", "resumen"])
     ejecutar_cita3 = any(k in inst_lower for k in ["buscarv", "xlookup", "buscar", "nuevos registros", "agregar 3", "3", "tercera", "busqueda", "búsqueda", "consulta"])
     ejecutar_todo = any(k in inst_lower for k in ["todas", "todo", "las 3", "las tres", "completo", "todos", "ambas", "general"])
@@ -214,11 +214,38 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
 
             margen_range = f"{m_letter}{start_row}:{m_letter}{end_row}"
 
-            # Verificar si pide condición dual (bicolor: ej. rojo para mayores y verde para menores)
-            has_rojo = any(k in inst_lower for k in ["rojo", "red", "alerta", "peligro"])
-            has_verde = any(k in inst_lower for k in ["verde", "green"])
+            # 1. Verificar si pide SEMÁFORO (3 colores: verde, amarillo y rojo)
+            es_semaforo = any(k in inst_lower for k in ["semaforo", "semáforo", "traffic light", "3 colores", "tres colores"]) or (
+                any(k in inst_lower for k in ["rojo", "red"]) and
+                any(k in inst_lower for k in ["amarillo", "yellow"]) and
+                any(k in inst_lower for k in ["verde", "green"])
+            )
 
-            if has_rojo and has_verde:
+            if es_semaforo:
+                numeros = [float(n) / 100.0 if float(n) > 1.0 else float(n) for n in re.findall(r'(\d+(?:\.\d+)?)\s*(?:%|porciento|por\s*ciento|pct)?', inst_lower) if n]
+                numeros_validos = sorted([n for n in set(numeros) if 0.05 <= n <= 0.95])
+                if len(numeros_validos) >= 2:
+                    umb_bajo = numeros_validos[0]
+                    umb_alto = numeros_validos[1]
+                else:
+                    umb_bajo = 0.35
+                    umb_alto = 0.50
+
+                fill_grn, font_grn, _ = palette["verde"]
+                fill_yel, font_yel, _ = palette["amarillo"]
+                fill_red, font_red, _ = palette["rojo"]
+
+                rule_grn = CellIsRule(operator='greaterThan', formula=[str(umb_alto)], stopIfTrue=True, fill=fill_grn, font=font_grn)
+                rule_yel = CellIsRule(operator='between', formula=[str(umb_bajo), str(umb_alto)], stopIfTrue=True, fill=fill_yel, font=font_yel)
+                rule_red = CellIsRule(operator='lessThan', formula=[str(umb_bajo)], stopIfTrue=True, fill=fill_red, font=font_red)
+
+                ws_data.conditional_formatting.add(margen_range, rule_grn)
+                ws_data.conditional_formatting.add(margen_range, rule_yel)
+                ws_data.conditional_formatting.add(margen_range, rule_red)
+                resumen_color_str = f"Semáforo Ejecutivo: Verde (> {int(umb_alto*100)}%), Amarillo ({int(umb_bajo*100)}%-{int(umb_alto*100)}%) y Rojo (< {int(umb_bajo*100)}%)"
+
+            # 2. Verificar si pide condición DUAL (bicolor: ej. rojo para mayores y verde para menores)
+            elif has_rojo and has_verde:
                 # Detectar qué color corresponde a mayor y cuál a menor
                 pos_mayor = min([inst_lower.find(k) for k in ["mayor", "arriba", "mas", "más", ">"] if inst_lower.find(k) != -1] or [999])
                 pos_rojo = min([inst_lower.find(k) for k in ["rojo", "red"] if inst_lower.find(k) != -1] or [999])
