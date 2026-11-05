@@ -214,11 +214,13 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
 
             margen_range = f"{m_letter}{start_row}:{m_letter}{end_row}"
 
+            has_rojo = any(k in inst_lower for k in ["rojo", "red", "alerta", "peligro"])
+            has_verde = any(k in inst_lower for k in ["verde", "green"])
+            has_amarillo = any(k in inst_lower for k in ["amarillo", "yellow", "naranja", "orange"])
+
             # 1. Verificar si pide SEMÁFORO (3 colores: verde, amarillo y rojo)
             es_semaforo = any(k in inst_lower for k in ["semaforo", "semáforo", "traffic light", "3 colores", "tres colores"]) or (
-                any(k in inst_lower for k in ["rojo", "red"]) and
-                any(k in inst_lower for k in ["amarillo", "yellow"]) and
-                any(k in inst_lower for k in ["verde", "green"])
+                has_rojo and has_amarillo and has_verde
             )
 
             if es_semaforo:

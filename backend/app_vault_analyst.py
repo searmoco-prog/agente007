@@ -200,22 +200,7 @@ if file_bytes is not None:
                 st.success("✅ **¡Análisis completado con éxito!**")
                 st.info(out_msg)
 
-                # Previsualización rápida de datos generados
-                wb_res = openpyxl.load_workbook(io.BytesIO(res_bytes), data_only=True)
-                active_sname = wb_res.active.title
-                st.markdown(f"#### 📊 Vista Previa de la Hoja Activa: `{active_sname}`")
-
-                # Cargar primeras 10 filas para visualización web
-                data_rows = []
-                for row in wb_res[active_sname].iter_rows(values_only=True):
-                    if any(c is not None for c in row):
-                        data_rows.append(list(row))
-                
-                if data_rows:
-                    df_preview = pd.DataFrame(data_rows[1:], columns=data_rows[0])
-                    st.dataframe(df_preview.head(10), use_container_width=True)
-
-                # Botón de descarga directa
+                # Botón de descarga directa (garantizado siempre visible)
                 st.download_button(
                     label=f"📥 Descargar {out_name} (Con Fórmulas Vivas)",
                     data=res_bytes,
@@ -223,6 +208,34 @@ if file_bytes is not None:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
+
+                # Previsualización rápida protegida contra errores
+                try:
+                    wb_res = openpyxl.load_workbook(io.BytesIO(res_bytes), data_only=True)
+                    # Preferir mostrar la hoja de datos en la vista previa
+                    preview_sheet = "Base_Datos" if "Base_Datos" in wb_res.sheetnames else wb_res.active.title
+                    st.markdown(f"#### 📊 Vista Previa de Datos: `{preview_sheet}`")
+
+                    data_rows = []
+                    for row in wb_res[preview_sheet].iter_rows(values_only=True):
+                        if any(c is not None for c in row):
+                            data_rows.append(list(row))
+
+                    if data_rows and len(data_rows) > 1:
+                        # Sanitizar nombres de columnas para evitar duplicados o None
+                        raw_headers = data_rows[0]
+                        seen = {}
+                        clean_headers = []
+                        for i, h in enumerate(raw_headers):
+                            h_name = str(h).strip() if h is not None and str(h).strip() != "" else f"Columna_{i+1}"
+                            count = seen.get(h_name, 0)
+                            seen[h_name] = count + 1
+                            clean_headers.append(h_name if count == 0 else f"{h_name}_{count}")
+
+                        df_preview = pd.DataFrame(data_rows[1:], columns=clean_headers)
+                        st.dataframe(df_preview.head(10), use_container_width=True)
+                except Exception:
+                    pass
 
             except Exception as e:
                 st.error(f"⚠️ Ocurrió un error al procesar el archivo: {e}")
