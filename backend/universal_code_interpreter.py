@@ -87,8 +87,17 @@ async def generate_python_transformation_code(schema: dict, user_prompt: str) ->
         "2. NO inventes imports innecesarios ni código de carga (NO uses openpyxl.load_workbook ni wb.save).\n"
         "3. Usa fórmulas de Excel en mayúsculas e inglés (ej: SUM, AVERAGE, IFERROR, VLOOKUP, COUNTIF, SUMIF).\n"
         "4. Si piden formato condicional o colores, usa openpyxl.formatting.rule.CellIsRule y openpyxl.styles.PatternFill.\n"
-        "5. Al terminar, si modificaste una hoja específica, asegúrate de marcarla activa: `wb.active = ws_target`.\n"
-        "6. Devuelve EXCLUSIVAMENTE el bloque de código entre ```python y ```, sin explicaciones ni saludos."
+        "   Para colorear una celda individual: cell.fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid').\n"
+        "5. REGLAS CRÍTICAS DE PROGRAMACIÓN DEFENSIVA:\n"
+        "   - SIEMPRE inicializa todas tus variables antes de cualquier bucle (ej: max_val = None, max_row = None, target_cell = None).\n"
+        "   - Al buscar máximos o mínimos, convierte valores a float limpiando símbolos como '$', ',' o espacios:\n"
+        "     try:\n"
+        "         val_num = float(str(raw_val).replace('$', '').replace(',', '').strip())\n"
+        "     except (ValueError, TypeError):\n"
+        "         continue\n"
+        "   - Ignora filas vacías, totales generales o encabezados.\n"
+        "6. Al terminar, si modificaste una hoja específica, asegúrate de marcarla activa: `wb.active = ws_target`.\n"
+        "7. Devuelve EXCLUSIVAMENTE el bloque de código entre ```python y ```, sin explicaciones ni saludos."
     )
 
     user_msg = (
@@ -178,23 +187,38 @@ def execute_safe_excel_transformation(file_bytes: bytes, code_str: str, file_nam
     return result_bytes, out_filename
 
 async def process_any_excel_instruction(file_bytes: bytes, user_instruction: str, file_name: str = "archivo.xlsx") -> tuple[bytes, str, str]:
-    """Flujo completo Zero-Data Leak: extrae schema -> genera código con IA -> ejecuta localmente."""
-    # 1. Extraer esquema
+    """Flujo completo Zero-Data Leak con auto-reparación inteligente ante errores."""
     schema = extract_metadata_schema(file_bytes)
 
-    # 2. Generar código Python
+    # 1. Generar código Python inicial
     code_generated = await generate_python_transformation_code(schema, user_instruction)
 
-    # 3. Ejecutar sobre el Excel real
-    result_bytes, out_filename = execute_safe_excel_transformation(file_bytes, code_generated, file_name)
-
-    resumen = (
-        f"🤖 **Transformación Universal Completada:**\n"
-        f"• Se ejecutó código generado específicamente para tu petición: *\"{user_instruction}\"*\n"
-        f"• Cero fuga de datos: solo se enviaron los nombres de columnas a la IA; los datos se procesaron en RAM.\n"
-        f"• Fórmulas y estilos aplicados de forma dinámica y viva."
-    )
-    return result_bytes, out_filename, resumen
+    # 2. Ejecutar con auto-reparación (hasta 2 intentos si la IA comete un bug de sintaxis o variables)
+    max_intentos = 2
+    for intento in range(max_intentos):
+        try:
+            result_bytes, out_filename = execute_safe_excel_transformation(file_bytes, code_generated, file_name)
+            resumen = (
+                f"🤖 **Transformación Universal Completada con IA Senior:**\n"
+                f"• Se ejecutó código generado a medida para: *\"{user_instruction}\"*\n"
+                f"• Cero fuga de datos: solo se enviaron los nombres de columnas a la IA; los datos se procesaron en RAM.\n"
+                f"• Cambios aplicados con éxito sobre el archivo Excel."
+            )
+            return result_bytes, out_filename, resumen
+        except Exception as e_exec:
+            if intento < max_intentos - 1:
+                # La IA cometió un bug; le devolvemos el error exacto para que lo auto-repare
+                repair_prompt = (
+                    f"El código que generaste falló con el siguiente error de ejecución en Python:\n"
+                    f"ERROR: {e_exec}\n\n"
+                    f"Código fallido:\n```python\n{code_generated}\n```\n\n"
+                    f"Corrige el código asegurándote de inicializar todas las variables y manejar los tipos de datos "
+                    f"de forma segura para cumplir la instrucción original: \"{user_instruction}\"."
+                )
+                code_generated = await generate_python_transformation_code(schema, repair_prompt)
+            else:
+                # Si fallaron los reintentos, relanzar para que se reporte
+                raise e_exec
 
 async def fetch_google_sheet_as_excel_bytes(google_sheet_url: str) -> tuple[bytes, str]:
     """Permite al bot leer enlaces en vivo de Google Sheets y convertirlos a un libro Excel."""

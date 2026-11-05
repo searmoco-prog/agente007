@@ -128,6 +128,30 @@ if file_bytes is not None:
     with col_info3:
         st.metric(label="Estado de Privacidad", value="Aislado Local")
 
+    # Vista previa inmediata del archivo cargado para que el usuario siempre vea sus datos
+    with st.expander("👁️ Vista Previa del Archivo Cargado (Primeras 10 filas)", expanded=True):
+        try:
+            wb_init = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+            s_init = "Base_Datos" if "Base_Datos" in wb_init.sheetnames else wb_init.active.title
+            init_rows = []
+            for r in wb_init[s_init].iter_rows(values_only=True):
+                if any(c is not None for c in r):
+                    init_rows.append(list(r))
+            if init_rows and len(init_rows) > 1:
+                seen_h = {}
+                clean_h = []
+                for i_c, h_val in enumerate(init_rows[0]):
+                    h_str = str(h_val).strip() if h_val is not None and str(h_val).strip() != "" else f"Col_{i_c+1}"
+                    cnt = seen_h.get(h_str, 0)
+                    seen_h[h_str] = cnt + 1
+                    clean_h.append(h_str if cnt == 0 else f"{h_str}_{cnt}")
+                df_init = pd.DataFrame(init_rows[1:], columns=clean_h)
+                st.dataframe(df_init.head(10), use_container_width=True)
+            elif init_rows:
+                st.dataframe(pd.DataFrame(init_rows), use_container_width=True)
+        except Exception:
+            pass
+
     st.markdown("---")
     st.markdown("### ⚙️ Selecciona las Transformaciones a Aplicar:")
 
