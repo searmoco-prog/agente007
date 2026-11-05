@@ -15,6 +15,13 @@ import openpyxl
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, CURRENT_DIR)
 
+# ── Cargar variables de entorno desde backend/.env ──────────────────────────
+# Se hace ANTES de importar módulos que lean GROQ_API_KEY al cargarse.
+from dotenv import load_dotenv
+_env_path = os.path.join(CURRENT_DIR, ".env")
+load_dotenv(dotenv_path=_env_path, override=False)
+# ─────────────────────────────────────────────────────────────────────────────
+
 import asyncio
 from universal_excel_agent import process_universal_excel, inspect_workbook
 from universal_code_interpreter import process_any_excel_instruction, fetch_google_sheet_as_excel_bytes
@@ -157,14 +164,36 @@ if file_bytes is not None:
     if instruction:
         with st.spinner("⚡ Procesando localmente con IA Zero-Data Leak..."):
             try:
-                # Si es una de las 3 opciones predefinidas, usar el motor optimizado determinista
-                if instruction in ["Calcula el margen y resalta en verde > 35%", 
-                                   "Genera tabla dinámica y gráfico circular por Estado", 
-                                   "Agrega módulo de búsqueda con BUSCARV / XLOOKUP",
-                                   "Calcula el margen y resalta en verde > 35%, genera tabla dinámica con gráfico circular por Estado y agrega módulo de búsqueda con BUSCARV"]:
+                # Detectar si la instrucción libre menciona colores/márgenes → motor determinista (sin Groq)
+                _inst_low = instruction.lower()
+                _keywords_deterministas = [
+                    "margen", "rojo", "verde", "amarillo", "azul", "porciento", "porcentaje",
+                    "%", "mayor", "menor", "arriba", "abajo", "rentabilidad", "ganancia",
+                    "tabla dinamica", "tabla dinámica", "grafico", "gráfico", "circular",
+                    "buscarv", "buscar", "xlookup", "estado", "resumen"
+                ]
+                _usar_motor_determinista = any(k in _inst_low for k in _keywords_deterministas)
+
+                # Si es una de las 3 opciones predefinidas O detectamos palabras clave analíticas
+                if _usar_motor_determinista or instruction in [
+                    "Calcula el margen y resalta en verde > 35%",
+                    "Genera tabla dinámica y gráfico circular por Estado",
+                    "Agrega módulo de búsqueda con BUSCARV / XLOOKUP",
+                    "Calcula el margen y resalta en verde > 35%, genera tabla dinámica con gráfico circular por Estado y agrega módulo de búsqueda con BUSCARV"
+                ]:
                     res_bytes, out_name, out_msg = process_universal_excel(file_bytes, instruction, file_name)
                 else:
-                    # Instrucción libre infinita: Code Interpreter
+                    # Instrucción libre avanzada: Code Interpreter vía Groq
+                    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+                    if not groq_key:
+                        st.warning(
+                            "⚠️ **GROQ_API_KEY no configurada.** Para instrucciones avanzadas (fuera de márgenes/colores/tablas), "
+                            "crea el archivo `backend/.env` con tu clave:\n\n"
+                            "```\nGROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx\n```\n\n"
+                            "Puedes obtener una clave **gratuita** en [console.groq.com](https://console.groq.com). "
+                            "Las instrucciones de color, margen y tabla dinámica **no la necesitan**."
+                        )
+                        st.stop()
                     res_bytes, out_name, out_msg = asyncio.run(process_any_excel_instruction(file_bytes, instruction, file_name))
 
                 st.success("✅ **¡Análisis completado con éxito!**")

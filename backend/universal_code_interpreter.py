@@ -17,7 +17,11 @@ import pandas as pd
 import openpyxl
 from dotenv import load_dotenv
 
-load_dotenv()
+# Cargar .env desde el mismo directorio donde vive este script (backend/)
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(dotenv_path=os.path.join(_THIS_DIR, ".env"), override=False)
+# También probar un nivel arriba (raíz del proyecto)
+load_dotenv(dotenv_path=os.path.join(_THIS_DIR, "..", ".env"), override=False)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 MODELOS_GROQ = [
