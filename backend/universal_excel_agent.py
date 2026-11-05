@@ -181,12 +181,52 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
                     cell_m.font = font_bold
                     cell_m.border = thin_border
 
-            # Formato Condicional en verde para márgenes > 35%
-            green_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
-            green_font = Font(color="375623", bold=True)
-            rule_35 = CellIsRule(operator='greaterThan', formula=['0.35'], stopIfTrue=True, fill=green_fill, font=green_font)
+            # Detección inteligente de color y umbral solicitado en la instrucción
+            color_solicitado = "verde"
+            if any(k in inst_lower for k in ["rojo", "red", "alerta", "peligro"]):
+                color_solicitado = "rojo"
+            elif any(k in inst_lower for k in ["amarillo", "yellow", "naranja", "orange"]):
+                color_solicitado = "amarillo"
+            elif any(k in inst_lower for k in ["azul", "blue"]):
+                color_solicitado = "azul"
+
+            # Detección de operador: mayor que (arriba de, mayor a) o menor que (abajo de, menor a)
+            operador = 'greaterThan'
+            if any(k in inst_lower for k in ["menor", "abajo", "inferior", "<", "debajo"]):
+                operador = 'lessThan'
+
+            # Detección de umbral numérico (ej: 30%, 35%, 0.30, etc.)
+            umbral_val = 0.35  # default
+            match_pct = re.search(r'(\d+(?:\.\d+)?)\s*%', inst_lower)
+            if match_pct:
+                umbral_val = float(match_pct.group(1)) / 100.0
+            else:
+                match_num = re.search(r'(?:arriba|mayor|superior|menor|abajo)\s*(?:de|a)?\s*(\d+(?:\.\d+)?)', inst_lower)
+                if match_num:
+                    val_parsed = float(match_num.group(1))
+                    umbral_val = val_parsed / 100.0 if val_parsed > 1.0 else val_parsed
+
+            # Paletas corporativas de formato condicional
+            if color_solicitado == "rojo":
+                cond_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+                cond_font = Font(color="C00000", bold=True)
+                nombre_color = "rojo suave"
+            elif color_solicitado == "amarillo":
+                cond_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+                cond_font = Font(color="B25900", bold=True)
+                nombre_color = "amarillo suave"
+            elif color_solicitado == "azul":
+                cond_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+                cond_font = Font(color="1F4E78", bold=True)
+                nombre_color = "azul suave"
+            else:
+                cond_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+                cond_font = Font(color="375623", bold=True)
+                nombre_color = "verde suave"
+
+            rule_cond = CellIsRule(operator=operador, formula=[str(umbral_val)], stopIfTrue=True, fill=cond_fill, font=cond_font)
             margen_range = f"{m_letter}{start_row}:{m_letter}{end_row}"
-            ws_data.conditional_formatting.add(margen_range, rule_35)
+            ws_data.conditional_formatting.add(margen_range, rule_cond)
 
             # Reflejar también en pestaña Dashboard si existe
             if "Dashboard" in wb.sheetnames:
@@ -215,8 +255,9 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
                         c_cell.number_format = "0.0%"
                         c_cell.border = thin_border
 
+            op_txt = ">" if operador == 'greaterThan' else "<"
             acciones_realizadas.append(
-                f"✅ **Cita 1 Completada:** Columna '% Margen de Ganancia' calculada con fórmulas vivas `={g_letter}#/{v_letter}#`, formato condicional **verde > 35%** en '{target_sheet_name}' y tarjeta de Margen Global añadida a Dashboard."
+                f"✅ **Cita 1 Completada:** Columna '% Margen de Ganancia' calculada con fórmulas vivas `={g_letter}#/{v_letter}#`, formato condicional **{nombre_color} ({op_txt} {int(umbral_val*100)}%)** en '{target_sheet_name}' y tarjeta de Margen Global añadida a Dashboard."
             )
 
     # -------------------------------------------------------------
