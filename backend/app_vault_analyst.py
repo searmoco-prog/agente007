@@ -23,8 +23,79 @@ load_dotenv(dotenv_path=_env_path, override=False)
 # ─────────────────────────────────────────────────────────────────────────────
 
 import asyncio
+import re
 from universal_excel_agent import process_universal_excel, inspect_workbook
 from universal_code_interpreter import process_any_excel_instruction, fetch_google_sheet_as_excel_bytes
+
+def get_smart_preview_df(file_bytes: bytes, max_rows: int = 15) -> pd.DataFrame:
+    """Construye un DataFrame limpio para la vista previa visual, calculando fórmulas y eliminando 'None'."""
+    try:
+        wb_f = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=False)
+        wb_t = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        sname = "Base_Datos" if "Base_Datos" in wb_f.sheetnames else wb_f.active.title
+        ws_f = wb_f[sname]
+        ws_t = wb_t[sname]
+
+        rows = []
+        for r in range(1, min(ws_f.max_row + 1, max_rows + 1)):
+            r_vals = [ws_t.cell(r, c).value for c in range(1, ws_f.max_column + 1)]
+            if any(v is not None for v in r_vals):
+                rows.append(r_vals)
+
+        if not rows or len(rows) < 2:
+            return pd.DataFrame()
+
+        headers = [str(h).strip() if h is not None and str(h).strip() != "" else f"Col_{i+1}" for i, h in enumerate(rows[0])]
+        seen = {}
+        clean_h = []
+        for h in headers:
+            cnt = seen.get(h, 0)
+            seen[h] = cnt + 1
+            clean_h.append(h if cnt == 0 else f"{h}_{cnt}")
+
+        df = pd.DataFrame(rows[1:], columns=clean_h)
+
+        # 1. Resolver Ganancia ($) si aparece None calculando Ventas - Costo
+        for col in df.columns:
+            if "ganancia" in col.lower() or "utilidad" in col.lower():
+                col_v = next((c for c in df.columns if ("monto" in c.lower() or "venta" in c.lower()) and "id" not in c.lower()), None)
+                col_c = next((c for c in df.columns if "costo" in c.lower() or "gasto" in c.lower()), None)
+                if col_v and col_c:
+                    for idx in df.index:
+                        val_curr = df.at[idx, col]
+                        if pd.isna(val_curr) or val_curr is None or str(val_curr).strip().lower() in ["none", ""]:
+                            try:
+                                v_num = float(str(df.at[idx, col_v]).replace("$", "").replace(",", "").strip())
+                                c_num = float(str(df.at[idx, col_c]).replace("$", "").replace(",", "").strip())
+                                df.at[idx, col] = v_num - c_num
+                            except (ValueError, TypeError):
+                                pass
+
+        # 2. Resolver % Margen si aparece None calculando Ganancia / Ventas
+        for col in df.columns:
+            if "margen" in col.lower():
+                col_v = next((c for c in df.columns if ("monto" in c.lower() or "venta" in c.lower()) and "id" not in c.lower()), None)
+                col_g = next((c for c in df.columns if "ganancia" in c.lower() or "utilidad" in c.lower()), None)
+                if col_v and col_g:
+                    for idx in df.index:
+                        val_curr = df.at[idx, col]
+                        if pd.isna(val_curr) or val_curr is None or str(val_curr).strip().lower() in ["none", ""]:
+                            try:
+                                v_num = float(str(df.at[idx, col_v]).replace("$", "").replace(",", "").strip())
+                                g_num = float(str(df.at[idx, col_g]).replace("$", "").replace(",", "").strip())
+                                if v_num > 0:
+                                    df.at[idx, col] = f"{(g_num / v_num) * 100:.1f}%"
+                            except (ValueError, TypeError):
+                                pass
+
+        # 3. Limpiar cualquier 'None' residual para que no se vea en la web
+        df = df.astype(object)
+        for col in df.columns:
+            df[col] = df[col].apply(lambda x: "" if x is None or str(x).strip().lower() == "none" else x)
+
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 st.set_page_config(
     page_title="VaultAnalyst AI - Zero-Trust Local",
@@ -130,27 +201,9 @@ if file_bytes is not None:
 
     # Vista previa inmediata del archivo cargado para que el usuario siempre vea sus datos
     with st.expander("👁️ Vista Previa del Archivo Cargado (Primeras 10 filas)", expanded=True):
-        try:
-            wb_init = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
-            s_init = "Base_Datos" if "Base_Datos" in wb_init.sheetnames else wb_init.active.title
-            init_rows = []
-            for r in wb_init[s_init].iter_rows(values_only=True):
-                if any(c is not None for c in r):
-                    init_rows.append(list(r))
-            if init_rows and len(init_rows) > 1:
-                seen_h = {}
-                clean_h = []
-                for i_c, h_val in enumerate(init_rows[0]):
-                    h_str = str(h_val).strip() if h_val is not None and str(h_val).strip() != "" else f"Col_{i_c+1}"
-                    cnt = seen_h.get(h_str, 0)
-                    seen_h[h_str] = cnt + 1
-                    clean_h.append(h_str if cnt == 0 else f"{h_str}_{cnt}")
-                df_init = pd.DataFrame(init_rows[1:], columns=clean_h)
-                st.dataframe(df_init.head(10), use_container_width=True)
-            elif init_rows:
-                st.dataframe(pd.DataFrame(init_rows), use_container_width=True)
-        except Exception:
-            pass
+        df_init_preview = get_smart_preview_df(file_bytes)
+        if not df_init_preview.empty:
+            st.dataframe(df_init_preview.head(10), use_container_width=True)
 
     st.markdown("---")
     st.markdown("### ⚙️ Selecciona las Transformaciones a Aplicar:")
@@ -212,33 +265,11 @@ if file_bytes is not None:
                     use_container_width=True
                 )
 
-                # Previsualización rápida protegida contra errores
-                try:
-                    wb_res = openpyxl.load_workbook(io.BytesIO(res_bytes), data_only=True)
-                    # Preferir mostrar la hoja de datos en la vista previa
-                    preview_sheet = "Base_Datos" if "Base_Datos" in wb_res.sheetnames else wb_res.active.title
-                    st.markdown(f"#### 📊 Vista Previa de Datos: `{preview_sheet}`")
-
-                    data_rows = []
-                    for row in wb_res[preview_sheet].iter_rows(values_only=True):
-                        if any(c is not None for c in row):
-                            data_rows.append(list(row))
-
-                    if data_rows and len(data_rows) > 1:
-                        # Sanitizar nombres de columnas para evitar duplicados o None
-                        raw_headers = data_rows[0]
-                        seen = {}
-                        clean_headers = []
-                        for i, h in enumerate(raw_headers):
-                            h_name = str(h).strip() if h is not None and str(h).strip() != "" else f"Columna_{i+1}"
-                            count = seen.get(h_name, 0)
-                            seen[h_name] = count + 1
-                            clean_headers.append(h_name if count == 0 else f"{h_name}_{count}")
-
-                        df_preview = pd.DataFrame(data_rows[1:], columns=clean_headers)
-                        st.dataframe(df_preview.head(10), use_container_width=True)
-                except Exception:
-                    pass
+                # Previsualización rápida inteligente de los datos resultantes
+                df_res_preview = get_smart_preview_df(res_bytes)
+                if not df_res_preview.empty:
+                    st.markdown("#### 📊 Vista Previa de los Datos con Fórmulas Calculadas:")
+                    st.dataframe(df_res_preview.head(10), use_container_width=True)
 
             except Exception as e:
                 st.error(f"⚠️ Ocurrió un error al procesar el archivo: {e}")
