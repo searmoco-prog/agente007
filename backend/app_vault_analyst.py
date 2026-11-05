@@ -162,40 +162,19 @@ if file_bytes is not None:
         instruction = custom_instruction
 
     if instruction:
-        with st.spinner("⚡ Procesando localmente con IA Zero-Data Leak..."):
+        with st.spinner("⚡ Procesando con Inteligencia Artificial..."):
             try:
-                # Detectar si la instrucción libre menciona colores/márgenes → motor determinista (sin Groq)
-                _inst_low = instruction.lower()
-                _keywords_deterministas = [
-                    "margen", "rojo", "verde", "amarillo", "azul", "porciento", "porcentaje",
-                    "semaforo", "semáforo", "traffic light", "colores", "bicolor",
-                    "%", "mayor", "menor", "arriba", "abajo", "rentabilidad", "ganancia",
-                    "tabla dinamica", "tabla dinámica", "grafico", "gráfico", "circular",
-                    "buscarv", "buscar", "xlookup", "estado", "resumen"
-                ]
-                _usar_motor_determinista = any(k in _inst_low for k in _keywords_deterministas)
-
-                # Si es una de las 3 opciones predefinidas O detectamos palabras clave analíticas
-                if _usar_motor_determinista or instruction in [
-                    "Calcula el margen y resalta en verde > 35%",
-                    "Genera tabla dinámica y gráfico circular por Estado",
-                    "Agrega módulo de búsqueda con BUSCARV / XLOOKUP",
-                    "Calcula el margen y resalta en verde > 35%, genera tabla dinámica con gráfico circular por Estado y agrega módulo de búsqueda con BUSCARV"
-                ]:
+                # Si el usuario presionó uno de los 4 botones predefinidos -> motor determinista ultrarrápido
+                if opt1 or opt2 or opt3 or opt_all:
                     res_bytes, out_name, out_msg = process_universal_excel(file_bytes, instruction, file_name)
                 else:
-                    # Instrucción libre avanzada: Code Interpreter vía Groq
+                    # Instrucción libre personalizada -> Code Interpreter con IA Real (Groq)
                     groq_key = os.environ.get("GROQ_API_KEY", "").strip()
-                    if not groq_key:
-                        st.warning(
-                            "⚠️ **GROQ_API_KEY no configurada.** Para instrucciones avanzadas (fuera de márgenes/colores/tablas), "
-                            "crea el archivo `backend/.env` con tu clave:\n\n"
-                            "```\nGROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx\n```\n\n"
-                            "Puedes obtener una clave **gratuita** en [console.groq.com](https://console.groq.com). "
-                            "Las instrucciones de color, margen y tabla dinámica **no la necesitan**."
-                        )
-                        st.stop()
-                    res_bytes, out_name, out_msg = asyncio.run(process_any_excel_instruction(file_bytes, instruction, file_name))
+                    if groq_key:
+                        res_bytes, out_name, out_msg = asyncio.run(process_any_excel_instruction(file_bytes, instruction, file_name))
+                    else:
+                        # Fallback determinista si no hay clave de Groq configurada
+                        res_bytes, out_name, out_msg = process_universal_excel(file_bytes, instruction, file_name)
 
                 st.success("✅ **¡Análisis completado con éxito!**")
                 st.info(out_msg)

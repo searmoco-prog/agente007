@@ -26,8 +26,9 @@ load_dotenv(dotenv_path=os.path.join(_THIS_DIR, "..", ".env"), override=False)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 MODELOS_GROQ = [
     os.getenv("GROQ_MODEL", "").strip(),
-    "openai/gpt-oss-120b",
-    "qwen/qwen3.8-27b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768",
 ]
 MODELOS_GROQ = [m for m in MODELOS_GROQ if m]
 
