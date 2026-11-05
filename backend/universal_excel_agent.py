@@ -181,23 +181,15 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
                     cell_m.font = font_bold
                     cell_m.border = thin_border
 
-            # Detección inteligente de color y umbral solicitado en la instrucción
-            color_solicitado = "verde"
-            if any(k in inst_lower for k in ["rojo", "red", "alerta", "peligro"]):
-                color_solicitado = "rojo"
-            elif any(k in inst_lower for k in ["amarillo", "yellow", "naranja", "orange"]):
-                color_solicitado = "amarillo"
-            elif any(k in inst_lower for k in ["azul", "blue"]):
-                color_solicitado = "azul"
-            elif any(k in inst_lower for k in ["verde", "green"]):
-                color_solicitado = "verde"
+            # Paleta de estilos de formato condicional (colores vivos y claros corporativos estilo Excel)
+            palette = {
+                "rojo": (PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"), Font(color="9C0006", bold=True), "rojo claro"),
+                "verde": (PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"), Font(color="006100", bold=True), "verde claro"),
+                "amarillo": (PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"), Font(color="9C5700", bold=True), "amarillo claro"),
+                "azul": (PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid"), Font(color="1F4E78", bold=True), "azul claro"),
+            }
 
-            # Detección de operador: mayor que (arriba de, mayor a, etc.) o menor que (abajo de, menor a, etc.)
-            operador = 'greaterThan'
-            if any(k in inst_lower for k in ["menor", "abajo", "inferior", "<", "debajo", "menos"]):
-                operador = 'lessThan'
-
-            # Detección de umbral numérico (ej: 30%, 30 porciento, mayor de 50, arriba del 30, etc.)
+            # Detección de umbral numérico (ej: 50%, 30 porciento, mayor de 50, etc.)
             umbral_val = 0.35  # default
             match_pct = re.search(r'(\d+(?:\.\d+)?)\s*(?:%|porciento|por\s*ciento|pct)', inst_lower)
             if match_pct:
@@ -207,24 +199,6 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
                 if match_num:
                     val_parsed = float(match_num.group(1))
                     umbral_val = val_parsed / 100.0 if val_parsed > 1.0 else val_parsed
-
-            # Paletas corporativas de formato condicional (colores vivos y claros estilo Excel)
-            if color_solicitado == "rojo":
-                cond_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-                cond_font = Font(color="9C0006", bold=True)
-                nombre_color = "rojo claro"
-            elif color_solicitado == "amarillo":
-                cond_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
-                cond_font = Font(color="9C5700", bold=True)
-                nombre_color = "amarillo claro"
-            elif color_solicitado == "azul":
-                cond_fill = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
-                cond_font = Font(color="1F4E78", bold=True)
-                nombre_color = "azul claro"
-            else:
-                cond_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-                cond_font = Font(color="006100", bold=True)
-                nombre_color = "verde claro"
 
             # Limpiar cualquier regla anterior sobre la columna de margen para que no se superpongan
             try:
@@ -238,9 +212,50 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
             for r in range(start_row, end_row + 1):
                 ws_data.cell(row=r, column=col_margen).fill = PatternFill(fill_type=None)
 
-            rule_cond = CellIsRule(operator=operador, formula=[str(umbral_val)], stopIfTrue=True, fill=cond_fill, font=cond_font)
             margen_range = f"{m_letter}{start_row}:{m_letter}{end_row}"
-            ws_data.conditional_formatting.add(margen_range, rule_cond)
+
+            # Verificar si pide condición dual (bicolor: ej. rojo para mayores y verde para menores)
+            has_rojo = any(k in inst_lower for k in ["rojo", "red", "alerta", "peligro"])
+            has_verde = any(k in inst_lower for k in ["verde", "green"])
+
+            if has_rojo and has_verde:
+                # Detectar qué color corresponde a mayor y cuál a menor
+                pos_mayor = min([inst_lower.find(k) for k in ["mayor", "arriba", "mas", "más", ">"] if inst_lower.find(k) != -1] or [999])
+                pos_rojo = min([inst_lower.find(k) for k in ["rojo", "red"] if inst_lower.find(k) != -1] or [999])
+                pos_verde = min([inst_lower.find(k) for k in ["verde", "green"] if inst_lower.find(k) != -1] or [999])
+
+                if abs(pos_mayor - pos_rojo) < abs(pos_mayor - pos_verde):
+                    col_mayor, col_menor = "rojo", "verde"
+                else:
+                    col_mayor, col_menor = "verde", "rojo"
+
+                fill_may, font_may, nom_may = palette[col_mayor]
+                fill_men, font_men, nom_men = palette[col_menor]
+
+                rule_mayor = CellIsRule(operator='greaterThan', formula=[str(umbral_val)], stopIfTrue=True, fill=fill_may, font=font_may)
+                rule_menor = CellIsRule(operator='lessThanOrEqual', formula=[str(umbral_val)], stopIfTrue=True, fill=fill_men, font=font_men)
+                ws_data.conditional_formatting.add(margen_range, rule_mayor)
+                ws_data.conditional_formatting.add(margen_range, rule_menor)
+                resumen_color_str = f"{nom_may} (> {int(umbral_val*100)}%) y {nom_men} (<= {int(umbral_val*100)}%)"
+            else:
+                # Condición simple (un solo color y operador)
+                color_solicitado = "verde"
+                if has_rojo:
+                    color_solicitado = "rojo"
+                elif any(k in inst_lower for k in ["amarillo", "yellow", "naranja", "orange"]):
+                    color_solicitado = "amarillo"
+                elif any(k in inst_lower for k in ["azul", "blue"]):
+                    color_solicitado = "azul"
+
+                operador = 'greaterThan'
+                if any(k in inst_lower for k in ["menor", "abajo", "inferior", "<", "debajo", "menos"]):
+                    operador = 'lessThan'
+
+                fill_s, font_s, nom_s = palette[color_solicitado]
+                rule_cond = CellIsRule(operator=operador, formula=[str(umbral_val)], stopIfTrue=True, fill=fill_s, font=font_s)
+                ws_data.conditional_formatting.add(margen_range, rule_cond)
+                op_txt = ">" if operador == 'greaterThan' else "<"
+                resumen_color_str = f"{nom_s} ({op_txt} {int(umbral_val*100)}%)"
 
             # Reflejar también en pestaña Dashboard si existe
             if "Dashboard" in wb.sheetnames:
@@ -269,9 +284,8 @@ def process_universal_excel(file_bytes: bytes, instruccion: str, file_name: str 
                         c_cell.number_format = "0.0%"
                         c_cell.border = thin_border
 
-            op_txt = ">" if operador == 'greaterThan' else "<"
             acciones_realizadas.append(
-                f"✅ **Cita 1 Completada:** Columna '% Margen de Ganancia' calculada con fórmulas vivas `={g_letter}#/{v_letter}#`, formato condicional **{nombre_color} ({op_txt} {int(umbral_val*100)}%)** en '{target_sheet_name}' y tarjeta de Margen Global añadida a Dashboard."
+                f"✅ **Cita 1 Completada:** Columna '% Margen de Ganancia' calculada con fórmulas vivas `={g_letter}#/{v_letter}#`, formato condicional **{resumen_color_str}** en '{target_sheet_name}' y tarjeta de Margen Global añadida a Dashboard."
             )
 
     # -------------------------------------------------------------

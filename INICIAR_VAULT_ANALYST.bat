@@ -13,6 +13,5 @@ set PYTHONIOENCODING=utf-8
 set PYTHONUTF8=1
 set STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
-start http://localhost:8501
-.\backend\.venv\Scripts\python.exe -m streamlit run backend/app_vault_analyst.py --server.headless=true --server.port=8501 --browser.gatherUsageStats=false
+.\backend\.venv\Scripts\python.exe -m streamlit run backend/app_vault_analyst.py --server.headless=false --server.port=8501 --browser.gatherUsageStats=false
 pause
