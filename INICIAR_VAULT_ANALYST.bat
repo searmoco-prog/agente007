@@ -13,9 +13,6 @@ set PYTHONIOENCODING=utf-8
 set PYTHONUTF8=1
 set STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
-:: Liberar el puerto 8501 si quedó una sesión previa abierta
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8501') do taskkill /f /pid %%a >nul 2>&1
-
 start http://localhost:8501
 .\backend\.venv\Scripts\python.exe -m streamlit run backend/app_vault_analyst.py --server.headless=true --server.port=8501 --browser.gatherUsageStats=false
 pause
