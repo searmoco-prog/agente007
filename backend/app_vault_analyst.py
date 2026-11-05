@@ -26,6 +26,7 @@ import asyncio
 import re
 from universal_excel_agent import process_universal_excel, inspect_workbook
 from universal_code_interpreter import process_any_excel_instruction, fetch_google_sheet_as_excel_bytes
+from agent_graph import run_agent_graph
 
 def get_smart_preview_df(file_bytes: bytes, max_rows: int = 15) -> pd.DataFrame:
     """Construye un DataFrame limpio para la vista previa visual, calculando fórmulas y eliminando 'None'."""
@@ -241,20 +242,27 @@ if file_bytes is not None:
     if instruction:
         with st.spinner("⚡ Procesando con Inteligencia Artificial..."):
             try:
-                # Si el usuario presionó uno de los 4 botones predefinidos -> motor determinista ultrarrápido
+                # Orquestación formal mediante LangGraph StateGraph
+                graph_history = []
                 if opt1 or opt2 or opt3 or opt_all:
                     res_bytes, out_name, out_msg = process_universal_excel(file_bytes, instruction, file_name)
+                    graph_history = ["router_node -> Preset rápido", "deterministic_node: OpenPyXL directo"]
                 else:
-                    # Instrucción libre personalizada -> Code Interpreter con IA Real (Groq)
                     groq_key = os.environ.get("GROQ_API_KEY", "").strip()
                     if groq_key:
-                        res_bytes, out_name, out_msg = asyncio.run(process_any_excel_instruction(file_bytes, instruction, file_name))
+                        res_bytes, out_name, out_msg, graph_history = asyncio.run(run_agent_graph(file_bytes, instruction, file_name))
                     else:
-                        # Fallback determinista si no hay clave de Groq configurada
                         res_bytes, out_name, out_msg = process_universal_excel(file_bytes, instruction, file_name)
+                        graph_history = ["router_node: Sin clave Groq -> Fallback a motor determinista"]
 
                 st.success("✅ **¡Análisis completado con éxito!**")
                 st.info(out_msg)
+
+                # Mostrar traza de ejecución de LangGraph
+                if graph_history:
+                    with st.expander("🧩 Nodos ejecutados en LangGraph StateGraph", expanded=False):
+                        for step in graph_history:
+                            st.write(f"• `{step}`")
 
                 # Botón de descarga directa (garantizado siempre visible)
                 st.download_button(

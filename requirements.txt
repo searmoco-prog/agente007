@@ -11,3 +11,4 @@ fastapi>=0.110.0
 uvicorn>=0.28.0
 langgraph>=0.0.30
 langchain-core>=0.1.30
+langchain-groq>=1.1.0

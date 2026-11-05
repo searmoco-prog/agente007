@@ -20,6 +20,7 @@ from openpyxl.formatting.rule import CellIsRule
 from dynamic_excel_agent import generate_dynamic_custom_excel
 from universal_excel_agent import process_universal_excel, inspect_workbook
 from universal_code_interpreter import process_any_excel_instruction, fetch_google_sheet_as_excel_bytes
+from agent_graph import run_agent_graph
 from agent_mcp import decide_agent_action_mcp, execute_tool_consultar_kpis, execute_langgraph_ticket
 from session_storage import save_user_session, restore_user_session
 
@@ -1282,16 +1283,12 @@ async def run_bot():
                         )
 
                         try:
-                            # Si es una de las 3 opciones principales o variantes, usar el motor universal optimizado
-                            es_estandar = any(k in texto_lower for k in [
-                                'margen', 'rentabilidad', 'buscarv', 'xlookup', 'tabla dinamica', 'tabla dinámica',
-                                'distribucion', 'distribución', 'circular', 'pastel', '35%', '1', '2', '3', 'todas'
-                            ])
-                            if es_estandar:
+                            # Orquestación formal mediante LangGraph StateGraph (Router -> Determinista / IA -> Auto-healing)
+                            try:
+                                res_bytes, out_name, out_msg, graph_history = await run_agent_graph(raw_b, texto, f_name)
+                            except Exception as e_graph:
+                                logger.warning(f"LangGraph arrojó excepción ({e_graph}), ejecutando fallback directo:")
                                 res_bytes, out_name, out_msg = process_universal_excel(raw_b, texto, f_name)
-                            else:
-                                # Instrucción libre infinita con IA Zero-Data Leak
-                                res_bytes, out_name, out_msg = await process_any_excel_instruction(raw_b, texto, f_name)
 
                             # Actualizar los raw_bytes de la sesión con la versión modificada
                             DATAFRAME_SESION[chat_id]["raw_bytes"] = res_bytes

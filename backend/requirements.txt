@@ -4,6 +4,7 @@ pydantic>=2.6.0
 supabase>=2.4.0
 langgraph>=0.0.30
 langchain-core>=0.1.30
+langchain-groq>=1.1.0
 langchain-google-genai>=1.0.0
 python-dotenv>=1.0.1
 pytest>=8.0.0
