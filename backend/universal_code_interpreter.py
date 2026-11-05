@@ -70,6 +70,21 @@ def extract_metadata_schema(file_bytes: bytes) -> dict:
         }
     return schema
 
+def clean_python_code_block(raw_text: str) -> str:
+    """Extrae código Python puro eliminando cualquier etiqueta markdown, fences o texto envolvente."""
+    raw = raw_text.strip()
+    m = re.search(r"```(?:python)?\s*([\s\S]*?)```", raw)
+    if m:
+        code = m.group(1).strip()
+    else:
+        m_start = re.search(r"```(?:python)?\s*([\s\S]*)", raw)
+        if m_start:
+            code = m_start.group(1).strip()
+        else:
+            code = raw
+    lines = [l for l in code.splitlines() if not l.strip().startswith("```")]
+    return "\n".join(lines).strip()
+
 async def generate_python_transformation_code(schema: dict, user_prompt: str) -> str:
     """Genera código Python seguro con la IA enviando SOLO metadatos (Zero Data Leak)."""
     if not GROQ_API_KEY:
@@ -116,13 +131,12 @@ async def generate_python_transformation_code(schema: dict, user_prompt: str) ->
                     {"role": "user", "content": user_msg}
                 ],
                 temperature=0.1,
-                max_tokens=900
+                max_tokens=2500
             )
             raw_content = resp.choices[0].message.content or ""
-            # Extraer código entre backticks
-            match = re.search(r"```(?:python)?\s*([\s\S]*?)\s*```", raw_content)
-            if match:
-                return match.group(1).strip()
+            clean_code = clean_python_code_block(raw_content)
+            if clean_code:
+                return clean_code
             return raw_content.strip()
         except Exception as e:
             last_error = e
@@ -168,14 +182,17 @@ def execute_safe_excel_transformation(file_bytes: bytes, code_str: str, file_nam
         "pd": pd
     }
 
+    # Sanitizar código antes de ejecutar para eliminar backticks o markdown residuales
+    clean_exec_code = clean_python_code_block(code_str)
+
     # Bloqueo de seguridad: no permitir llamadas al sistema operativo
     forbidden_terms = ["os.system", "subprocess", "shutil.rmtree", "__import__", "eval(", "input("]
     for term in forbidden_terms:
-        if term in code_str:
+        if term in clean_exec_code:
             raise SecurityError(f"Instrucción no permitida por seguridad: {term}")
 
     # Ejecutar en RAM
-    exec(code_str, {}, local_env)
+    exec(clean_exec_code, {}, local_env)
 
     output = io.BytesIO()
     wb.save(output)
