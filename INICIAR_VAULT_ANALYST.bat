@@ -8,5 +8,6 @@ echo [INFO] Iniciando aplicacion web privada en tu navegador...
 echo [INFO] Los datos NO salen a internet. Procesamiento 100%% en RAM.
 echo.
 cd /d "%~dp0"
-.\backend\.venv\Scripts\python.exe -m streamlit run backend/app_vault_analyst.py --server.headless=false --server.port=8501
+set STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+.\backend\.venv\Scripts\python.exe -m streamlit run backend/app_vault_analyst.py --server.headless=false --server.port=8501 --browser.gatherUsageStats=false --client.toolbarMode=viewer
 pause
