@@ -108,8 +108,9 @@ async def generate_python_transformation_code(schema: dict, user_prompt: str) ->
         "5. REGLAS CRÍTICAS DE PROGRAMACIÓN DEFENSIVA:\n"
         "   - SIEMPRE inicializa todas tus variables antes de cualquier bucle (ej: max_val = None, max_row = None, target_cell = None).\n"
         "   - Al buscar máximos, mínimos o comparar números, limpia '$', ',', '%' y espacios antes de convertir a float.\n"
+        "   - Ignora filas vacías, totales generales ('Total', 'Total General') o encabezados. Al sumar en pandas usa pd.to_numeric(col, errors='coerce').fillna(0).\n"
+        "   - SINÓNIMOS Y COLUMNAS: Si en la hoja existe una columna que contenga '%' o 'Margen' (como '% Margen de Ganancia'), y el usuario menciona 'porcentaje', 'porcentaje de ventas' o '%', DEBES USAR ESA COLUMNA EXISTENTE DIRECTAMENTE. ESTÁ ESTRICTAMENTE PROHIBIDO calcular un porcentaje dividiendo ventas entre total general; el usuario se refiere SIEMPRE a la columna de porcentaje ya existente en su tabla. Si piden colorear 'vendedor' y no existe columna 'Vendedor', colorea 'ID Ventas' o 'Cliente'.\n"
         "   - MANEJO DE PORCENTAJES EN EXCEL: En Excel, los porcentajes casi siempre se almacenan como decimales (ej: 50% es 0.50, 35% es 0.35). Al comparar por un porcentaje como 50%, comprueba siempre si el valor supera 50 O si está entre 0 y 1 superando 0.50: ej: `(val > 50 or (val <= 1.0 and val > 0.50))`.\n"
-        "   - Ignora filas vacías, totales generales o encabezados.\n"
         "6. Al terminar, si modificaste una hoja específica, asegúrate de marcarla activa: `wb.active = ws_target`.\n"
         "7. Devuelve EXCLUSIVAMENTE el bloque de código entre ```python y ```, sin explicaciones ni saludos."
     )
@@ -193,8 +194,8 @@ def execute_safe_excel_transformation(file_bytes: bytes, code_str: str, file_nam
         if term in clean_exec_code:
             raise SecurityError(f"Instrucción no permitida por seguridad: {term}")
 
-    # Ejecutar en RAM
-    exec(clean_exec_code, {}, local_env)
+    # Ejecutar en RAM con local_env como globals y locals para que imports y funciones internas vean todo
+    exec(clean_exec_code, local_env, local_env)
 
     output = io.BytesIO()
     wb.save(output)

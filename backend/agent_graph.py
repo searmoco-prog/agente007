@@ -121,9 +121,10 @@ async def code_generator_node(state: AgentState) -> Dict[str, Any]:
         "1. El archivo está cargado como objeto openpyxl llamado 'wb' (wb = openpyxl.load_workbook(io.BytesIO(file_bytes)) ya existe).\n"
         "2. NUNCA inventes columnas ni uses openpyxl.load_workbook ni wb.save() al final. El entorno ya precarga: 'wb', 'openpyxl', 'pd', 're', 'math', 'datetime'.\n"
         "3. SIEMPRE inicializa todas las variables antes de usarlas en bucles o condicionales.\n"
-        "4. Limpia strings numéricos (quita '$', ',', '%' y espacios) antes de convertirlos a float.\n"
-        "5. MANEJO DE PORCENTAJES EN EXCEL: En Excel, los porcentajes casi siempre se almacenan como decimales entre 0 y 1 (por ejemplo, 50% es 0.50, 35% es 0.35). Al comparar por un porcentaje como 50%, comprueba siempre si el valor supera 50 O si está entre 0 y 1 superando 0.50: ej. `(val > 50 or (val <= 1.0 and val > 0.50))`.\n"
-        "6. Devuelve ÚNICAMENTE el código Python puro, sin explicaciones ni markdown."
+        "4. FILAS DE TOTALES Y TIPOS: Ignora filas donde alguna celda contenga 'Total' o 'Total General'. Al sumar columnas en pandas usa siempre pd.to_numeric(col, errors='coerce').fillna(0).\n"
+        "5. COLUMNAS Y PRIORIDAD DE PORCENTAJES: Si en la hoja existe una columna que contenga '%' o 'Margen' (como '% Margen de Ganancia'), y el usuario menciona 'porcentaje', 'porcentaje de ventas' o '%', DEBES USAR ESA COLUMNA EXISTENTE DIRECTAMENTE. ESTÁ ESTRICTAMENTE PROHIBIDO calcular un porcentaje dividiendo ventas entre total general; el usuario se refiere SIEMPRE a la columna de porcentaje ya existente en su tabla. Si piden colorear 'vendedor' y no existe columna 'Vendedor', colorea 'ID Ventas' o 'Cliente'.\n"
+        "6. MANEJO DE PORCENTAJES EN EXCEL: Los porcentajes se guardan como decimales entre 0 y 1 (ej: 50% es 0.50, 35% es 0.35). Al comparar por un porcentaje como 50%, comprueba siempre si el valor supera 50 O si está entre 0 y 1 superando 0.50: ej. `(val > 50 or (val <= 1.0 and val > 0.50))`.\n"
+        "7. Devuelve ÚNICAMENTE el código Python puro, sin explicaciones ni markdown."
     )
 
     if error_msg and retry_count > 0:
