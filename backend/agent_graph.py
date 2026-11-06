@@ -27,6 +27,7 @@ from universal_code_interpreter import (
     MODELOS_GROQ,
     GROQ_API_KEY
 )
+from data_cleaner import clean_and_evaluate_workbook
 
 # 1. Definición del Estado del Grafo
 class AgentState(TypedDict):
@@ -34,6 +35,7 @@ class AgentState(TypedDict):
     file_name: str
     instruction: str
     schema: Optional[Dict[str, Any]]
+    hygiene_report: Optional[Dict[str, Any]]
     route: Optional[str]              # "deterministic" o "code_interpreter"
     generated_code: Optional[str]
     error_message: Optional[str]
@@ -45,6 +47,38 @@ class AgentState(TypedDict):
     graph_history: List[str]          # Para registrar el camino tomado por el grafo
 
 # 2. Nodos del Grafo
+
+def hygiene_node(state: AgentState) -> Dict[str, Any]:
+    """Nodo 0 (Higiene y Limpieza): Precalcula fórmulas vacías, normaliza números planos y elimina trampas."""
+    history = list(state.get("graph_history", []))
+    history.append("hygiene_node: Higienizando datos crudos y evaluando fórmulas a números planos")
+    
+    try:
+        cleaned_bytes, report = clean_and_evaluate_workbook(state["file_bytes"])
+        eval_count = report.get("formulas_evaluated", 0)
+        cols_added = report.get("calculated_columns_added", [])
+        
+        detail_msg = f"hygiene_node: {eval_count} fórmulas precalculadas en RAM"
+        if cols_added:
+            detail_msg += f" | Columnas añadidas: {', '.join(cols_added)}"
+        history.append(detail_msg)
+        
+        # Extraer esquema limpio sobre los bytes ya higienizados
+        clean_schema = extract_metadata_schema(cleaned_bytes)
+        
+        return {
+            "file_bytes": cleaned_bytes,
+            "schema": clean_schema,
+            "hygiene_report": report,
+            "status": "routing",
+            "graph_history": history
+        }
+    except Exception as e:
+        history.append(f"hygiene_node advertencia: no se pudo higienizar ({e}), continuando con archivo original")
+        return {
+            "status": "routing",
+            "graph_history": history
+        }
 
 def router_node(state: AgentState) -> Dict[str, Any]:
     """Nodo 1: Analiza la petición y clasifica hacia qué rama del grafo debe ir."""
@@ -122,8 +156,11 @@ async def code_generator_node(state: AgentState) -> Dict[str, Any]:
         "2. NUNCA inventes columnas ni uses openpyxl.load_workbook ni wb.save() al final. El entorno ya precarga: 'wb', 'openpyxl', 'pd', 're', 'math', 'datetime'.\n"
         "3. SIEMPRE inicializa todas las variables antes de usarlas en bucles o condicionales.\n"
         "4. FILAS DE TOTALES Y TIPOS: Ignora filas donde alguna celda contenga 'Total' o 'Total General'. Al sumar columnas en pandas usa siempre pd.to_numeric(col, errors='coerce').fillna(0).\n"
-        "5. COLUMNAS Y PRIORIDAD DE PORCENTAJES: Si en la hoja existe una columna que contenga '%' o 'Margen' (como '% Margen de Ganancia'), y el usuario menciona 'porcentaje', 'porcentaje de ventas' o '%', DEBES USAR ESA COLUMNA EXISTENTE DIRECTAMENTE. ESTÁ ESTRICTAMENTE PROHIBIDO calcular un porcentaje dividiendo ventas entre total general; el usuario se refiere SIEMPRE a la columna de porcentaje ya existente en su tabla. Si piden colorear 'vendedor' y no existe columna 'Vendedor', colorea 'ID Ventas' o 'Cliente'.\n"
-        "6. MANEJO DE PORCENTAJES EN EXCEL: Los porcentajes se guardan como decimales entre 0 y 1 (ej: 50% es 0.50, 35% es 0.35). Al comparar por un porcentaje como 50%, comprueba siempre si el valor supera 50 O si está entre 0 y 1 superando 0.50: ej. `(val > 50 or (val <= 1.0 and val > 0.50))`.\n"
+        "5. COLUMNAS PRECALCULADAS Y PRIORIDAD: Las columnas '% Margen de Ganancia' y 'Ganancia ($)' ya han sido higienizadas y contienen NÚMEROS REALES (ej: 0.508 para 50.8%, o montos numéricos). NO contienen fórmulas vacías ni None.\n"
+        "   - Si piden 'el vendedor con mayor margen' o 'el que vendió más': identifica la columna 'Cliente' como vendedor.\n"
+        "   - Encuentra el valor MÁXIMO absoluto estrictamente mayor que cero (filtrando filas de Total).\n"
+        "   - Colorea ÚNICAMENTE la celda o fila del cliente/vendedor que tenga ese valor máximo (o los que superen el umbral especificado, ej. > 0.50). ESTÁ ESTRICTAMENTE PROHIBIDO colorear a todos los clientes.\n"
+        "6. MANEJO DE PORCENTAJES EN EXCEL: Los porcentajes se guardan como decimales entre 0 y 1 (ej: 50% es 0.50, 35% es 0.35). Al comparar por un porcentaje como 50%, comprueba siempre: `(val > 50 or (0 < val <= 1.0 and val > 0.50))`.\n"
         "7. Devuelve ÚNICAMENTE el código Python puro, sin explicaciones ni markdown."
     )
 
@@ -235,13 +272,15 @@ def build_agent_graph():
     workflow = StateGraph(AgentState)
 
     # Agregar nodos
+    workflow.add_node("hygiene_node", hygiene_node)
     workflow.add_node("router_node", router_node)
     workflow.add_node("deterministic_node", deterministic_node)
     workflow.add_node("code_generator_node", code_generator_node)
     workflow.add_node("executor_evaluator_node", executor_evaluator_node)
 
-    # Definir punto de entrada
-    workflow.set_entry_point("router_node")
+    # Definir punto de entrada: siempre pasa primero por higiene de fórmulas y datos
+    workflow.set_entry_point("hygiene_node")
+    workflow.add_edge("hygiene_node", "router_node")
 
     # Conexiones condicionales desde el Router
     workflow.add_conditional_edges(
@@ -286,6 +325,7 @@ async def run_agent_graph(file_bytes: bytes, instruction: str, file_name: str = 
         "file_name": file_name,
         "instruction": instruction,
         "schema": None,
+        "hygiene_report": None,
         "route": None,
         "generated_code": None,
         "error_message": None,
