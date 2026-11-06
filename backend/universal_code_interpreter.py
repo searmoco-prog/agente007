@@ -103,14 +103,21 @@ async def generate_python_transformation_code(schema: dict, user_prompt: str) ->
         "1. El libro ya está cargado en la variable `wb` (openpyxl.Workbook). Modifica `wb` directamente.\n"
         "2. NO inventes imports innecesarios ni código de carga (NO uses openpyxl.load_workbook ni wb.save).\n"
         "3. Usa fórmulas de Excel en mayúsculas e inglés (ej: SUM, AVERAGE, IFERROR, VLOOKUP, COUNTIF, SUMIF).\n"
-        "4. Si piden formato condicional o colores, usa openpyxl.formatting.rule.CellIsRule y openpyxl.styles.PatternFill.\n"
-        "   Para colorear una celda individual: cell.fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid').\n"
+        "4. Si piden formato condicional o colores, usa openpyxl.styles.PatternFill para colorear celdas individuales.\n"
+        "   Ejemplo correcto: cell.fill = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid').\n"
+        "   IMPORTANTE: start_color y end_color deben ser cadenas de 6 caracteres hex SIN el símbolo # (ej: 'FF0000' para rojo).\n"
         "5. REGLAS CRÍTICAS DE PROGRAMACIÓN DEFENSIVA:\n"
-        "   - SIEMPRE inicializa todas tus variables antes de cualquier bucle (ej: max_val = None, max_row = None, target_cell = None).\n"
+        "   - SIEMPRE inicializa todas tus variables antes de cualquier bucle (ej: max_val = None, max_row = None).\n"
         "   - Al buscar máximos, mínimos o comparar números, limpia '$', ',', '%' y espacios antes de convertir a float.\n"
-        "   - Ignora filas vacías, totales generales ('Total', 'Total General') o encabezados. Al sumar en pandas usa pd.to_numeric(col, errors='coerce').fillna(0).\n"
-        "   - SINÓNIMOS Y COLUMNAS: Si en la hoja existe una columna que contenga '%' o 'Margen' (como '% Margen de Ganancia'), y el usuario menciona 'porcentaje', 'porcentaje de ventas' o '%', DEBES USAR ESA COLUMNA EXISTENTE DIRECTAMENTE. ESTÁ ESTRICTAMENTE PROHIBIDO calcular un porcentaje dividiendo ventas entre total general; el usuario se refiere SIEMPRE a la columna de porcentaje ya existente en su tabla. Si piden colorear 'vendedor' y no existe columna 'Vendedor', colorea 'ID Ventas' o 'Cliente'.\n"
-        "   - MANEJO DE PORCENTAJES EN EXCEL: En Excel, los porcentajes casi siempre se almacenan como decimales (ej: 50% es 0.50, 35% es 0.35). Al comparar por un porcentaje como 50%, comprueba siempre si el valor supera 50 O si está entre 0 y 1 superando 0.50: ej: `(val > 50 or (val <= 1.0 and val > 0.50))`.\n"
+        "   - Ignora filas vacías y filas que contengan la palabra 'Total'. Al sumar en pandas usa pd.to_numeric(col, errors='coerce').fillna(0).\n"
+        "   - COLUMNAS CON FÓRMULAS: Cuando openpyxl lee con data_only=True, las celdas con fórmulas devuelven None. "
+        "     Si la columna de Ganancia (o Margen) tiene None, CALCULA EL VALOR tú mismo en Python: margen = (monto_ventas - costo) / monto_ventas si monto_ventas > 0.\n"
+        "   - SINÓNIMOS CLAVE: 'vendedor' = columna 'Cliente' si no existe columna 'Vendedor'. "
+        "     '% de ventas' o 'porcentaje de ventas' = margen de ganancia calculado como (Monto - Costo) / Monto.\n"
+        "   - MANEJO DE PORCENTAJES EN EXCEL: Siempre convierte el umbral: si el usuario dice '50%', el valor Python puede ser 50 o 0.50. "
+        "     Usa: `(val > 50 or (0 < val <= 1.0 and val > 0.50))` para aceptar ambos formatos.\n"
+        "   - ESTRATEGIA PARA COLOREAR EL VENDEDOR MÁS ALTO: Si el usuario pide colorear el cliente/vendedor con mayor porcentaje o mayor valor, "
+        "     primero calcula el MÁXIMO, luego recorre todas las filas y colorea SOLO las que tienen ese valor máximo (o supera un umbral).\n"
         "6. Al terminar, si modificaste una hoja específica, asegúrate de marcarla activa: `wb.active = ws_target`.\n"
         "7. Devuelve EXCLUSIVAMENTE el bloque de código entre ```python y ```, sin explicaciones ni saludos."
     )
@@ -118,6 +125,13 @@ async def generate_python_transformation_code(schema: dict, user_prompt: str) ->
     user_msg = (
         f"Estructura del libro Excel (Metadatos):\n{schema}\n\n"
         f"Instrucción del usuario:\n\"{user_prompt}\"\n\n"
+        "NOTA IMPORTANTE SOBRE LAS FÓRMULAS: openpyxl con data_only=True lee celdas con fórmulas como None. "
+        "Si la columna 'Ganancia ($)' o '% Margen' tienen None, CALCULA el margen en Python: "
+        "margen = (monto_ventas - costo) / monto_ventas (si monto_ventas > 0). "
+        "Cuando el usuario pide 'vendedor que vendio mas del 50%' o 'mas porcentaje', interpreta que quiere "
+        "al cliente/vendedor cuyo MARGEN DE GANANCIA (calculado como (Ventas-Costo)/Ventas) supera el 50% "
+        "O en su defecto al que tiene el mayor monto de ventas absoluto. "
+        "Colorea TODAS las filas de ese cliente, no solo una.\n\n"
         "Escribe el código Python para transformar el objeto `wb`."
     )
 
@@ -197,8 +211,11 @@ def execute_safe_excel_transformation(file_bytes: bytes, code_str: str, file_nam
     # Ejecutar en RAM con local_env como globals y locals para que imports y funciones internas vean todo
     exec(clean_exec_code, local_env, local_env)
 
+    # IMPORTANTE: usar local_env["wb"] y NO la variable `wb` local,
+    # porque el código del sandbox modifica el wb que está dentro de local_env.
+    wb_modificado = local_env.get("wb", wb)
     output = io.BytesIO()
-    wb.save(output)
+    wb_modificado.save(output)
     output.seek(0)
     result_bytes = output.getvalue()
 
