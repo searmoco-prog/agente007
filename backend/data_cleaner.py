@@ -121,28 +121,6 @@ def clean_and_evaluate_workbook(file_bytes: bytes) -> Tuple[bytes, Dict[str, Any
         idx_ganancia = find_col_idx(["ganancia", "utilidad", "profit", "beneficio"])
         idx_margen = find_col_idx(["margen", "% margen", "margin"])
 
-        # Si existen Ventas y Costo pero NO existe columna de Margen, crearla automáticamente
-        if idx_ventas and idx_costo and not idx_margen:
-            idx_margen = ws.max_column + 1
-            header_cell = ws.cell(header_row_idx, idx_margen)
-            header_cell.value = "% Margen de Ganancia"
-            # Copiar estilo del encabezado anterior si existe
-            prev_h = ws.cell(header_row_idx, idx_margen - 1)
-            if prev_h.fill and prev_h.fill.fill_type:
-                header_cell.fill = openpyxl.styles.PatternFill(
-                    fill_type=prev_h.fill.fill_type,
-                    start_color=getattr(prev_h.fill.start_color, 'rgb', '001F497D') or '001F497D',
-                    end_color=getattr(prev_h.fill.end_color, 'rgb', '001F497D') or '001F497D'
-                )
-            if prev_h.font:
-                header_cell.font = openpyxl.styles.Font(
-                    name=prev_h.font.name,
-                    size=prev_h.font.size,
-                    bold=True,
-                    color=getattr(prev_h.font.color, 'rgb', 'FFFFFFFF') or 'FFFFFFFF'
-                )
-            report["calculated_columns_added"].append(f"{sname}: % Margen de Ganancia")
-
         # 3. Recorrer filas de datos (después de header_row_idx)
         sum_ventas_sheet = 0.0
         sum_ganancia_sheet = 0.0

@@ -18,6 +18,7 @@ import sys
 import traceback
 import pandas as pd
 import openpyxl
+from typing import Any
 from dotenv import load_dotenv
 
 # Cargar .env desde el mismo directorio donde vive este script (backend/)
@@ -36,6 +37,77 @@ MODELOS_GROQ = [
     "mixtral-8x7b-32768",
 ]
 MODELOS_GROQ = [m for m in MODELOS_GROQ if m]
+
+# Diccionario Universal de Colores compatibles con openpyxl (códigos HEX sin #)
+COLOR_MAP = {
+    # Morados / Púrpuras
+    "morado": "800080",
+    "púrpura": "800080",
+    "purpura": "800080",
+    "violeta": "8A2BE2",
+    "lila": "C8A2C8",
+    "lavanda": "EDE9FE",
+    "purple": "800080",
+    # Verdes
+    "verde": "C6EFCE",
+    "verde_claro": "C6EFCE",
+    "verde_suave": "E2EFDA",
+    "verde_oscuro": "00B050",
+    "menta": "E2EFDA",
+    "green": "C6EFCE",
+    # Rojos / Rosas
+    "rojo": "FFC7CE",
+    "rojo_alerta": "FF0000",
+    "rojo_suave": "FFC7CE",
+    "rosa": "FFC7CE",
+    "coral": "F8D7DA",
+    "red": "FFC7CE",
+    # Amarillos / Dorados
+    "amarillo": "FFF2CC",
+    "amarillo_suave": "FFF2CC",
+    "amarillo_fuerte": "FFFF00",
+    "dorado": "FFE699",
+    "crema": "FFF2CC",
+    "yellow": "FFF2CC",
+    "gold": "FFE699",
+    # Azules
+    "azul": "D9E1F2",
+    "azul_claro": "D9E1F2",
+    "azul_marino": "1F497D",
+    "azul_cielo": "B4C6E7",
+    "blue": "D9E1F2",
+    # Naranjas
+    "naranja": "FCE4D6",
+    "naranja_suave": "FCE4D6",
+    "naranja_fuerte": "ED7D31",
+    "durazno": "FCE4D6",
+    "orange": "FCE4D6",
+    # Grises
+    "gris": "D9D9D9",
+    "gris_claro": "F2F2F2",
+    "gray": "D9D9D9",
+    "grey": "D9D9D9"
+}
+
+def get_fill(color: str, fill_type: str = "solid") -> openpyxl.styles.PatternFill:
+    """Helper seguro que convierte nombres de color o códigos HEX a PatternFill válido en openpyxl."""
+    if not color:
+        return openpyxl.styles.PatternFill(fill_type=None)
+    c_clean = str(color).strip().lower().replace("#", "")
+    hex_code = COLOR_MAP.get(c_clean, c_clean).upper()
+    if not (len(hex_code) in (6, 8) and all(ch in "0123456789ABCDEF" for ch in hex_code)):
+        hex_code = "C6EFCE"
+    return openpyxl.styles.PatternFill(start_color=hex_code, end_color=hex_code, fill_type=fill_type)
+
+def normalize_text(val: Any) -> str:
+    """Normaliza texto eliminando acentos, caracteres especiales y pasando a minúsculas."""
+    if val is None:
+        return ""
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", str(val))
+        if unicodedata.category(c) != "Mn"
+    ).lower().strip()
 
 def extract_metadata_schema(file_bytes: bytes) -> dict:
     """Extrae únicamente nombres de pestañas y cabeceras sin exponer los datos sensibles."""
@@ -104,9 +176,10 @@ async def generate_python_transformation_code(schema: dict, user_prompt: str) ->
         "1. El libro ya está cargado en la variable `wb` (openpyxl.Workbook). Modifica `wb` directamente.\n"
         "2. NO inventes imports innecesarios ni código de carga (NO uses openpyxl.load_workbook ni wb.save).\n"
         "3. Usa fórmulas de Excel en mayúsculas e inglés (ej: SUM, AVERAGE, IFERROR, VLOOKUP, COUNTIF, SUMIF).\n"
-        "4. Si piden formato condicional o colores, usa openpyxl.styles.PatternFill para colorear celdas individuales.\n"
-        "   Ejemplo correcto: cell.fill = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid').\n"
-        "   IMPORTANTE: start_color y end_color deben ser cadenas de 6 caracteres hex SIN el símbolo # (ej: 'FF0000' para rojo).\n"
+        "4. MANEJO DE COLORES Y FORMATOS CONDICIONALES:\n"
+        "   - openpyxl PatternFill requiere OBLIGATORIAMENTE un código Hexadecimal de 6 caracteres sin '#' (ej: '800080' para morado, 'C6EFCE' para verde, 'FFC7CE' para rojo).\n"
+        "   - NUNCA pases nombres de color en texto como 'morado', 'purple', 'verde' a `PatternFill(start_color=...)` porque openpyxl lanza 'ValueError: Colors must be aRGB hex values'.\n"
+        "   - En su lugar, USA LA FUNCIÓN PRECARGADA `get_fill(color)` (ej: `cell.fill = get_fill('morado')` o `get_fill('verde')`) que mapea automáticamente nombres a HEX seguros.\n"
         "5. REGLAS CRÍTICAS DE PROGRAMACIÓN DEFENSIVA:\n"
         "   - SIEMPRE inicializa todas tus variables antes de cualquier bucle (ej: max_val = None, max_row = None).\n"
         "   - Al buscar máximos, mínimos o comparar números, limpia '$', ',', '%' y espacios antes de convertir a float.\n"
@@ -115,9 +188,9 @@ async def generate_python_transformation_code(schema: dict, user_prompt: str) ->
         "     Si la columna de Ganancia (o Margen) tiene None, CALCULA EL VALOR tú mismo en Python: margen = (monto_ventas - costo) / monto_ventas si monto_ventas > 0.\n"
         "   - SINÓNIMOS Y COLUMNAS: 'vendedor' = columna 'Nombre Completo', 'Empleado', 'Vendedor' o 'Cliente'.\n"
         "   - FILTROS DE TEXTO Y CIUDADES (BÚSQUEDA INTELIGENTE): NUNCA uses comparación estricta de igualdad `== 'mexico'`.\n"
-        "     Usa siempre comparación insensible a mayúsculas/minúsculas y por subcadena, eliminando acentos/tildes con `unicodedata.normalize('NFKD', str(val)).encode('ASCII', 'ignore').decode('utf-8').lower()`.\n"
-        "     Si buscan 'ciudad de mexico', 'cdmx' o 'mexico', busca que coincida cualquiera de esos términos (`'mexico' in norm or 'cdmx' in norm`).\n"
-        "     Si piden poner en verde los vendedores de cierta ciudad, colorea la fila completa o la celda del nombre del vendedor para todas las filas que cumplan el criterio.\n"
+        "     Usa la función precargada `normalize_text(val)` que quita acentos, signos y convierte a minúsculas.\n"
+        "     Si buscan 'ciudad de mexico', 'cdmx' o 'mexico', comprueba: `any(k in normalize_text(ciudad_val) for k in ['mexico', 'cdmx'])`.\n"
+        "     Si piden poner en morado, verde o cualquier color los vendedores de cierta ciudad, aplica `cell.fill = get_fill('morado')` a la celda del nombre del vendedor o a toda la fila para todas las filas que cumplan el criterio.\n"
         "   - '% de ventas' o 'porcentaje de ventas' = margen de ganancia calculado como (Monto - Costo) / Monto.\n"
         "   - MANEJO DE PORCENTAJES EN EXCEL: Siempre convierte el umbral: si el usuario dice '50%', el valor Python puede ser 50 o 0.50. "
         "     Usa: `(val > 50 or (0 < val <= 1.0 and val > 0.50))` para aceptar ambos formatos.\n"
@@ -202,7 +275,10 @@ def execute_safe_excel_transformation(file_bytes: bytes, code_str: str, file_nam
         "PieChart": openpyxl.chart.PieChart,
         "LineChart": openpyxl.chart.LineChart,
         "get_column_letter": openpyxl.utils.get_column_letter,
-        "pd": pd
+        "pd": pd,
+        "COLOR_MAP": COLOR_MAP,
+        "get_fill": get_fill,
+        "normalize_text": normalize_text
     }
 
     # Sanitizar código antes de ejecutar para eliminar backticks o markdown residuales

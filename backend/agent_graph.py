@@ -153,7 +153,7 @@ async def code_generator_node(state: AgentState) -> Dict[str, Any]:
         "Tu única tarea es generar un script en Python usando openpyxl y pandas para transformar un archivo Excel en memoria.\n"
         "Reglas estrictas:\n"
         "1. El archivo está cargado como objeto openpyxl llamado 'wb' (wb = openpyxl.load_workbook(io.BytesIO(file_bytes)) ya existe).\n"
-        "2. NUNCA inventes columnas ni uses openpyxl.load_workbook ni wb.save() al final. El entorno ya precarga: 'wb', 'openpyxl', 'pd', 're', 'math', 'datetime', 'unicodedata'.\n"
+        "2. NUNCA inventes columnas ni uses openpyxl.load_workbook ni wb.save() al final. El entorno ya precarga: 'wb', 'openpyxl', 'pd', 're', 'math', 'datetime', 'unicodedata', 'COLOR_MAP', 'get_fill', 'normalize_text'.\n"
         "3. SIEMPRE inicializa todas las variables antes de usarlas en bucles o condicionales.\n"
         "4. FILAS DE TOTALES Y TIPOS: Ignora filas donde alguna celda contenga 'Total' o 'Total General'. Al sumar columnas en pandas usa siempre pd.to_numeric(col, errors='coerce').fillna(0).\n"
         "5. COLUMNAS PRECALCULADAS Y PRIORIDAD: Las columnas '% Margen de Ganancia' y 'Ganancia ($)' ya han sido higienizadas y contienen NÚMEROS REALES (ej: 0.508 para 50.8%, o montos numéricos). NO contienen fórmulas vacías ni None.\n"
@@ -161,10 +161,12 @@ async def code_generator_node(state: AgentState) -> Dict[str, Any]:
         "   - Si piden encontrar el valor máximo: encuentra el valor MÁXIMO absoluto estrictamente mayor que cero (filtrando filas de Total).\n"
         "   - Colorea ÚNICAMENTE la celda o fila del cliente/vendedor que tenga ese valor máximo (o los que superen el umbral especificado, ej. > 0.50).\n"
         "6. MANEJO DE PORCENTAJES EN EXCEL: Los porcentajes se guardan como decimales entre 0 y 1 (ej: 50% es 0.50, 35% es 0.35). Al comparar por un porcentaje como 50%, comprueba siempre: `(val > 50 or (0 < val <= 1.0 and val > 0.50))`.\n"
-        "7. FILTROS DE TEXTO Y CIUDADES (BÚSQUEDA INTELIGENTE): NUNCA uses comparación de igualdad exacta `== 'mexico'` para ciudades o categorías.\n"
-        "   - Normaliza siempre texto quitando acentos y a minúsculas (`unicodedata.normalize('NFKD', str(val)).encode('ASCII', 'ignore').decode('utf-8').lower()`).\n"
-        "   - Si el usuario busca 'ciudad de mexico', 'cdmx' o 'mexico', busca subcadenas: `('mexico' in norm or 'cdmx' in norm)`.\n"
-        "   - Si piden 'poner en verde los vendedores que son de la ciudad de mexico': colorea la fila completa o la celda del nombre del vendedor para todas las filas donde la ciudad coincida.\n"
+        "7. MANEJO DE COLORES Y BÚSQUEDA INTELIGENTE:\n"
+        "   - openpyxl PatternFill requiere OBLIGATORIAMENTE un código Hexadecimal de 6 dígitos sin '#' (ej: Morado='800080', Verde='C6EFCE', Rojo='FFC7CE', Amarillo='FFF2CC', Azul='D9E1F2', Naranja='FCE4D6').\n"
+        "   - NUNCA pases nombres de color en texto como 'morado', 'purple', 'verde' a `PatternFill(start_color=...)` porque openpyxl lanza ValueError. Usa la función precargada `get_fill(color)` (ej: `cell.fill = get_fill('morado')`) o `PatternFill(start_color='800080', end_color='800080', fill_type='solid')`.\n"
+        "   - Usa la función precargada `normalize_text(val)` para comparar ciudades, nombres o textos sin acentos ni mayúsculas.\n"
+        "   - Si el usuario busca 'ciudad de mexico', 'cdmx' o 'mexico', comprueba: `any(k in normalize_text(ciudad_val) for k in ['mexico', 'cdmx'])`.\n"
+        "   - Si piden poner en morado, verde o cualquier color los vendedores de cierta ciudad: colorea la fila completa o la celda del nombre del vendedor para todas las filas donde la ciudad coincida usando `get_fill('morado')` (o el color pedido).\n"
         "8. Devuelve ÚNICAMENTE el código Python puro, sin explicaciones ni markdown."
     )
 
@@ -351,12 +353,15 @@ async def run_agent_graph(file_bytes: bytes, instruction: str, file_name: str = 
             final_state.get("graph_history", [])
         )
     else:
-        # Mecanismo de recuperación de seguridad (Fallback transparente)
-        try:
-            res_b, out_f, sum_m = process_universal_excel(file_bytes, instruction, file_name)
-            history = list(final_state.get("graph_history", []))
-            history.append("fallback_recovery: Resuelto mediante motor determinista de respaldo")
-            return res_b, out_f, sum_m, history
-        except Exception:
-            err = final_state.get("error_message", "Error desconocido durante la ejecución del grafo.")
-            raise RuntimeError(f"El Agente LangGraph no pudo completar la instrucción: {err}")
+        inst_l = instruction.lower()
+        es_preset = any(k in inst_l for k in ["1", "2", "3", "todas", "tabla", "dinamica", "buscarv"])
+        if es_preset:
+            try:
+                res_b, out_f, sum_m = process_universal_excel(file_bytes, instruction, file_name)
+                history = list(final_state.get("graph_history", []))
+                history.append("fallback_recovery: Resuelto mediante motor determinista de respaldo")
+                return res_b, out_f, sum_m, history
+            except Exception:
+                pass
+        err = final_state.get("error_message", "No se pudo generar código ejecutable válido tras los reintentos.")
+        raise RuntimeError(f"El Agente LangGraph no pudo completar la instrucción personalizada: {err}")
