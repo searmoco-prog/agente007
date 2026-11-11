@@ -40,14 +40,16 @@ MODELOS_GROQ = [m for m in MODELOS_GROQ if m]
 
 # Diccionario Universal de Colores compatibles con openpyxl (códigos HEX sin #)
 COLOR_MAP = {
-    # Morados / Púrpuras
-    "morado": "800080",
-    "púrpura": "800080",
-    "purpura": "800080",
-    "violeta": "8A2BE2",
-    "lila": "C8A2C8",
+    # Morados / Púrpuras ejecutivos (estilo SaaS pastel de alto contraste con texto negro)
+    "morado": "EDE9FE",
+    "morado_pastel": "EDE9FE",
+    "morado_oscuro": "7030A0",
+    "púrpura": "EDE9FE",
+    "purpura": "EDE9FE",
+    "violeta": "E9D5FF",
+    "lila": "F3E8FF",
     "lavanda": "EDE9FE",
-    "purple": "800080",
+    "purple": "EDE9FE",
     # Verdes
     "verde": "C6EFCE",
     "verde_claro": "C6EFCE",
@@ -187,10 +189,11 @@ async def generate_python_transformation_code(schema: dict, user_prompt: str) ->
         "   - COLUMNAS CON FÓRMULAS: Cuando openpyxl lee con data_only=True, las celdas con fórmulas devuelven None. "
         "     Si la columna de Ganancia (o Margen) tiene None, CALCULA EL VALOR tú mismo en Python: margen = (monto_ventas - costo) / monto_ventas si monto_ventas > 0.\n"
         "   - SINÓNIMOS Y COLUMNAS: 'vendedor' = columna 'Nombre Completo', 'Empleado', 'Vendedor' o 'Cliente'.\n"
-        "   - FILTROS DE TEXTO Y CIUDADES (BÚSQUEDA INTELIGENTE): NUNCA uses comparación estricta de igualdad `== 'mexico'`.\n"
+        "   - FILTROS DE TEXTO Y CIUDADES (BÚSQUEDA INTELIGENTE Y FILAS COMPLETAS):\n"
+        "     NUNCA uses comparación estricta de igualdad `== 'mexico'`.\n"
         "     Usa la función precargada `normalize_text(val)` que quita acentos, signos y convierte a minúsculas.\n"
         "     Si buscan 'ciudad de mexico', 'cdmx' o 'mexico', comprueba: `any(k in normalize_text(ciudad_val) for k in ['mexico', 'cdmx'])`.\n"
-        "     Si piden poner en morado, verde o cualquier color los vendedores de cierta ciudad, aplica `cell.fill = get_fill('morado')` a la celda del nombre del vendedor o a toda la fila para todas las filas que cumplan el criterio.\n"
+        "     REGLA DE FILA COMPLETA OBLIGATORIA: Si piden poner en morado, verde o cualquier color los vendedores o registros de cierta ciudad o condición, DEBES COLOREAR TODA LA FILA COMPLETA (todos los campos horizontales desde la columna 1 hasta max_column de esa fila: `for c_idx in range(1, ws.max_column + 1): ws.cell(r, c_idx).fill = get_fill('morado')`). NO limites el color a solo la celda del nombre.\n"
         "   - '% de ventas' o 'porcentaje de ventas' = margen de ganancia calculado como (Monto - Costo) / Monto.\n"
         "   - MANEJO DE PORCENTAJES EN EXCEL: Siempre convierte el umbral: si el usuario dice '50%', el valor Python puede ser 50 o 0.50. "
         "     Usa: `(val > 50 or (0 < val <= 1.0 and val > 0.50))` para aceptar ambos formatos.\n"

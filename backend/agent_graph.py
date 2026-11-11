@@ -162,11 +162,11 @@ async def code_generator_node(state: AgentState) -> Dict[str, Any]:
         "   - Colorea ÚNICAMENTE la celda o fila del cliente/vendedor que tenga ese valor máximo (o los que superen el umbral especificado, ej. > 0.50).\n"
         "6. MANEJO DE PORCENTAJES EN EXCEL: Los porcentajes se guardan como decimales entre 0 y 1 (ej: 50% es 0.50, 35% es 0.35). Al comparar por un porcentaje como 50%, comprueba siempre: `(val > 50 or (0 < val <= 1.0 and val > 0.50))`.\n"
         "7. MANEJO DE COLORES Y BÚSQUEDA INTELIGENTE:\n"
-        "   - openpyxl PatternFill requiere OBLIGATORIAMENTE un código Hexadecimal de 6 dígitos sin '#' (ej: Morado='800080', Verde='C6EFCE', Rojo='FFC7CE', Amarillo='FFF2CC', Azul='D9E1F2', Naranja='FCE4D6').\n"
-        "   - NUNCA pases nombres de color en texto como 'morado', 'purple', 'verde' a `PatternFill(start_color=...)` porque openpyxl lanza ValueError. Usa la función precargada `get_fill(color)` (ej: `cell.fill = get_fill('morado')`) o `PatternFill(start_color='800080', end_color='800080', fill_type='solid')`.\n"
+        "   - openpyxl PatternFill requiere OBLIGATORIAMENTE un código Hexadecimal de 6 dígitos sin '#' (ej: Morado='EDE9FE' lavanda pastel SaaS, Verde='C6EFCE', Rojo='FFC7CE', Amarillo='FFF2CC', Azul='D9E1F2', Naranja='FCE4D6').\n"
+        "   - NUNCA pases nombres de color en texto como 'morado', 'purple', 'verde' a `PatternFill(start_color=...)` porque openpyxl lanza ValueError. Usa la función precargada `get_fill(color)` (ej: `cell.fill = get_fill('morado')`) o `PatternFill(start_color='EDE9FE', end_color='EDE9FE', fill_type='solid')`.\n"
         "   - Usa la función precargada `normalize_text(val)` para comparar ciudades, nombres o textos sin acentos ni mayúsculas.\n"
         "   - Si el usuario busca 'ciudad de mexico', 'cdmx' o 'mexico', comprueba: `any(k in normalize_text(ciudad_val) for k in ['mexico', 'cdmx'])`.\n"
-        "   - Si piden poner en morado, verde o cualquier color los vendedores de cierta ciudad: colorea la fila completa o la celda del nombre del vendedor para todas las filas donde la ciudad coincida usando `get_fill('morado')` (o el color pedido).\n"
+        "   - REGLA DE FILA COMPLETA OBLIGATORIA: Si piden poner en morado, verde o cualquier color los vendedores o registros de cierta ciudad: colorea TODA LA FILA COMPLETA horizontalmente (todos los campos desde la columna 1 hasta max_column de esa fila: `for c_idx in range(1, ws.max_column + 1): ws.cell(r, c_idx).fill = get_fill('morado')`). NO limites el color a solo la celda del nombre.\n"
         "8. Devuelve ÚNICAMENTE el código Python puro, sin explicaciones ni markdown."
     )
 
