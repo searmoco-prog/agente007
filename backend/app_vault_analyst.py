@@ -101,21 +101,31 @@ def get_smart_preview_df(file_bytes: bytes, max_rows: int = 15) -> pd.DataFrame:
         return pd.DataFrame()
 
 st.set_page_config(
-    page_title="VaultAnalyst AI - Zero-Trust Local",
-    page_icon="🛡️",
+    page_title="Agente 007 - CRM Analytics & Bóveda Local",
+    page_icon="💼",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# Estilos CSS corporativos - Tema Moderno Pastel & Morado
+# Estilos CSS corporativos - Tema Moderno Pastel & Morado CRM
 st.markdown("""
 <style>
-    /* Ocultar barra de herramientas y pie de página de Streamlit para efecto app nativa */
-    #MainMenu {visibility: hidden;}
-    header[data-testid="stHeader"] {visibility: hidden; height: 0px;}
+    /* Ocultar pie de página y botón de deploy, MANTENIENDO el menú de hamburguesa accesible */
     footer {visibility: hidden;}
     .stDeployButton {display: none;}
-    div[data-testid="stToolbar"] {visibility: hidden; height: 0px;}
+    
+    /* Header transparente para que el botón de hamburguesa/sidebar esté visible y elegante */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        z-index: 99 !important;
+    }
+    button[data-testid="baseButton-headerNoPadding"], [data-testid="collapsedControl"] {
+        color: #7C3AED !important;
+        background: #FFFFFF !important;
+        border: 1.5px solid #EDE9FE !important;
+        border-radius: 10px !important;
+        box-shadow: 0 2px 8px rgba(124, 58, 237, 0.08) !important;
+    }
 
     /* Tipografía nativa moderna de alta velocidad */
     html, body, [class*="css"] {
@@ -361,44 +371,65 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Barra lateral informativa (Moderna y plegable)
+# Barra lateral informativa estilo CRM
 with st.sidebar:
     st.markdown("""
-    <div style="background: white; border: 1.5px solid #EDE9FE; border-radius: 18px; padding: 22px 16px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.05); text-align: center; margin-bottom: 16px;">
-        <div style="font-size: 2.6rem; margin-bottom: 6px;">🛡️</div>
-        <div style="font-weight: 800; font-size: 1.25rem; color: #4C1D95; letter-spacing: -0.3px;">VaultAnalyst AI</div>
-        <div style="font-size: 0.78rem; font-weight: 700; color: #7C3AED; margin-top: 6px; background: #F3E8FF; padding: 4px 12px; border-radius: 9999px; display: inline-block;">Zero-Trust On-Premise</div>
+    <div style="background: white; border: 1.5px solid #EDE9FE; border-radius: 18px; padding: 20px 16px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.05); text-align: center; margin-bottom: 16px;">
+        <div style="font-size: 2.6rem; margin-bottom: 4px;">💼</div>
+        <div style="font-weight: 800; font-size: 1.3rem; color: #4C1D95; letter-spacing: -0.3px;">Agente 007</div>
+        <div style="font-size: 0.8rem; font-weight: 700; color: #7C3AED; margin-top: 4px; background: #F3E8FF; padding: 4px 12px; border-radius: 9999px; display: inline-block;">CRM Analytics Suite</div>
     </div>
-    <div style="background: white; border: 1.5px solid #EDE9FE; border-radius: 18px; padding: 18px 16px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.04); margin-bottom: 16px;">
-        <div style="font-weight: 700; color: #1F2937; margin-bottom: 12px; font-size: 0.92rem; display: flex; align-items: center; gap: 6px;">
-            <span>🔒</span> <span>Garantías de Privacidad</span>
+    
+    <div style="background: white; border: 1.5px solid #EDE9FE; border-radius: 18px; padding: 16px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.04); margin-bottom: 16px;">
+        <div style="font-weight: 700; color: #1F2937; margin-bottom: 12px; font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.5px;">
+            Módulos del Sistema
         </div>
-        <div style="color: #4B5563; font-size: 0.84rem; line-height: 1.6;">
-            <p style="margin-bottom: 8px;">✨ <b>Cero transmisión:</b> datos 100% aislados en este equipo.</p>
-            <p style="margin-bottom: 8px;">⚡ <b>RAM Local:</b> procesamiento en memoria protegida.</p>
-            <p style="margin-bottom: 8px;">📊 <b>Fórmulas Vivas:</b> Excel nativo (VLOOKUP, SUM).</p>
-            <p style="margin-bottom: 0px;">🏛️ <b>Cumplimiento:</b> estándar bancario GDPR / ISO 27001.</p>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="padding: 8px 12px; background: #FAF5FF; border: 1px solid #E9D5FF; border-radius: 10px; color: #6D28D9; font-weight: 700; font-size: 0.86rem; display: flex; align-items: center; gap: 8px;">
+                <span>📊</span> <span>Ventas & Márgenes</span>
+            </div>
+            <div style="padding: 8px 12px; background: #FFFFFF; border: 1px solid #F3E8FF; border-radius: 10px; color: #4B5563; font-weight: 600; font-size: 0.86rem; display: flex; align-items: center; gap: 8px;">
+                <span>👥</span> <span>Vendedores & Clientes</span>
+            </div>
+            <div style="padding: 8px 12px; background: #FFFFFF; border: 1px solid #F3E8FF; border-radius: 10px; color: #4B5563; font-weight: 600; font-size: 0.86rem; display: flex; align-items: center; gap: 8px;">
+                <span>🔍</span> <span>BUSCARV & Búsqueda</span>
+            </div>
+            <div style="padding: 8px 12px; background: #FFFFFF; border: 1px solid #F3E8FF; border-radius: 10px; color: #4B5563; font-weight: 600; font-size: 0.86rem; display: flex; align-items: center; gap: 8px;">
+                <span>⚡</span> <span>Copilot Autónomo 007</span>
+            </div>
         </div>
     </div>
+
+    <div style="background: white; border: 1.5px solid #EDE9FE; border-radius: 18px; padding: 16px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.04); margin-bottom: 16px;">
+        <div style="font-weight: 700; color: #1F2937; margin-bottom: 10px; font-size: 0.88rem; display: flex; align-items: center; gap: 6px;">
+            <span>🛡️</span> <span>Garantía Zero-Trust</span>
+        </div>
+        <div style="color: #6B7280; font-size: 0.82rem; line-height: 1.6;">
+            <p style="margin-bottom: 6px;">🔒 Cómputo 100% en RAM local.</p>
+            <p style="margin-bottom: 6px;">📑 Fórmulas vivas en mayúsculas.</p>
+            <p style="margin-bottom: 0px;">🏛️ Compliance bancario GDPR.</p>
+        </div>
+    </div>
+
     <div style="text-align: center; color: #9CA3AF; font-size: 0.78rem; font-weight: 500;">
-        Agente 007 Suite • v4.0 Localhost
+        Agente 007 Suite • v4.0 CRM Localhost
     </div>
     """, unsafe_allow_html=True)
 
-# Barra superior estilo App Nativa
+# Barra superior estilo CRM App
 st.markdown("""
 <div class="app-topbar">
     <div class="app-brand">
-        <span class="app-logo">🛡️</span>
+        <span class="app-logo">💼</span>
         <div>
-            <div class="app-name">VaultAnalyst AI</div>
-            <div style="font-size: 0.8rem; color: #6B7280; font-weight: 500;">Bóveda Analítica Local On-Premise</div>
+            <div class="app-name">Agente 007</div>
+            <div style="font-size: 0.8rem; color: #6B7280; font-weight: 500;">CRM Analytics & Bóveda Inteligente</div>
         </div>
-        <span class="app-tag">v4.0 Enterprise</span>
+        <span class="app-tag">v4.0 CRM Enterprise</span>
     </div>
     <div class="app-status">
         <span class="status-dot"></span>
-        <span>Air-Gapped RAM Seguro</span>
+        <span>Motor Local Air-Gapped</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
