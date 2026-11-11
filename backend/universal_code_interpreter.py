@@ -13,6 +13,7 @@ import io
 import re
 import math
 import datetime
+import unicodedata
 import sys
 import traceback
 import pandas as pd
@@ -112,8 +113,12 @@ async def generate_python_transformation_code(schema: dict, user_prompt: str) ->
         "   - Ignora filas vacías y filas que contengan la palabra 'Total'. Al sumar en pandas usa pd.to_numeric(col, errors='coerce').fillna(0).\n"
         "   - COLUMNAS CON FÓRMULAS: Cuando openpyxl lee con data_only=True, las celdas con fórmulas devuelven None. "
         "     Si la columna de Ganancia (o Margen) tiene None, CALCULA EL VALOR tú mismo en Python: margen = (monto_ventas - costo) / monto_ventas si monto_ventas > 0.\n"
-        "   - SINÓNIMOS CLAVE: 'vendedor' = columna 'Cliente' si no existe columna 'Vendedor'. "
-        "     '% de ventas' o 'porcentaje de ventas' = margen de ganancia calculado como (Monto - Costo) / Monto.\n"
+        "   - SINÓNIMOS Y COLUMNAS: 'vendedor' = columna 'Nombre Completo', 'Empleado', 'Vendedor' o 'Cliente'.\n"
+        "   - FILTROS DE TEXTO Y CIUDADES (BÚSQUEDA INTELIGENTE): NUNCA uses comparación estricta de igualdad `== 'mexico'`.\n"
+        "     Usa siempre comparación insensible a mayúsculas/minúsculas y por subcadena, eliminando acentos/tildes con `unicodedata.normalize('NFKD', str(val)).encode('ASCII', 'ignore').decode('utf-8').lower()`.\n"
+        "     Si buscan 'ciudad de mexico', 'cdmx' o 'mexico', busca que coincida cualquiera de esos términos (`'mexico' in norm or 'cdmx' in norm`).\n"
+        "     Si piden poner en verde los vendedores de cierta ciudad, colorea la fila completa o la celda del nombre del vendedor para todas las filas que cumplan el criterio.\n"
+        "   - '% de ventas' o 'porcentaje de ventas' = margen de ganancia calculado como (Monto - Costo) / Monto.\n"
         "   - MANEJO DE PORCENTAJES EN EXCEL: Siempre convierte el umbral: si el usuario dice '50%', el valor Python puede ser 50 o 0.50. "
         "     Usa: `(val > 50 or (0 < val <= 1.0 and val > 0.50))` para aceptar ambos formatos.\n"
         "   - ESTRATEGIA PARA COLOREAR EL VENDEDOR MÁS ALTO: Si el usuario pide colorear el cliente/vendedor con mayor porcentaje o mayor valor, "
@@ -185,6 +190,7 @@ def execute_safe_excel_transformation(file_bytes: bytes, code_str: str, file_nam
         "re": re,
         "math": math,
         "datetime": datetime,
+        "unicodedata": unicodedata,
         "Font": openpyxl.styles.Font,
         "PatternFill": openpyxl.styles.PatternFill,
         "Alignment": openpyxl.styles.Alignment,
