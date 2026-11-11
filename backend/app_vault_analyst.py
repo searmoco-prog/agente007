@@ -27,6 +27,7 @@ import re
 from universal_excel_agent import process_universal_excel, inspect_workbook
 from universal_code_interpreter import process_any_excel_instruction, fetch_google_sheet_as_excel_bytes
 from agent_graph import run_agent_graph
+from shortcuts_config import CATEGORIAS, ATAJOS
 
 def get_smart_preview_df(file_bytes: bytes, max_rows: int = 15) -> pd.DataFrame:
     """Construye un DataFrame limpio para la vista previa visual, calculando fórmulas y eliminando 'None'."""
@@ -219,6 +220,15 @@ if file_bytes is not None:
     with col_btn4:
         opt_all = st.button("⭐ APLICAR TODAS", type="primary", use_container_width=True)
 
+    # Catálogo Unificado de Atajos
+    atajo_instruction = None
+    with st.expander("⚡ Catálogo de Atajos Rápidos por Categoría (Limpieza, Semáforos, Tablas, Fórmulas)", expanded=False):
+        atajo_map = {f"[{CATEGORIAS[info['categoria']]['nombre']}] {info['titulo']}": info["instruccion"] for k, info in ATAJOS.items()}
+        sel_atajo = st.selectbox("Elige una operación predefinida del catálogo:", ["-- Selecciona un atajo --"] + list(atajo_map.keys()))
+        if st.button("🚀 Aplicar Atajo Seleccionado"):
+            if sel_atajo != "-- Selecciona un atajo --":
+                atajo_instruction = atajo_map[sel_atajo]
+
     custom_instruction = st.text_input(
         "💬 O escribe una instrucción personalizada en lenguaje natural:",
         placeholder="Ej: Calcula el margen de ganancia y resalta los mejores en verde...",
@@ -236,6 +246,8 @@ if file_bytes is not None:
         instruction = "Agrega módulo de búsqueda con BUSCARV / XLOOKUP"
     elif opt_all:
         instruction = "Calcula el margen y resalta en verde > 35%, genera tabla dinámica con gráfico circular por Estado y agrega módulo de búsqueda con BUSCARV"
+    elif atajo_instruction:
+        instruction = atajo_instruction
     elif btn_custom and custom_instruction:
         instruction = custom_instruction
 

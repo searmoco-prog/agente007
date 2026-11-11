@@ -23,6 +23,17 @@ from universal_code_interpreter import process_any_excel_instruction, fetch_goog
 from agent_graph import run_agent_graph
 from agent_mcp import decide_agent_action_mcp, execute_tool_consultar_kpis, execute_langgraph_ticket
 from session_storage import save_user_session, restore_user_session
+from shortcuts_config import CATEGORIAS, ATAJOS
+from telegram_views import (
+    build_main_menu_keyboard,
+    build_categories_keyboard,
+    build_category_shortcuts_keyboard,
+    format_file_uploaded_card,
+    format_executive_report_card,
+    format_categories_menu_card,
+    format_category_detail_card,
+    format_help_card
+)
 
 # Salida estándar sin buffer para logs en tiempo real
 sys.stdout.reconfigure(line_buffering=True)
@@ -775,17 +786,12 @@ async def ask_ai_chat(pregunta: str, df: pd.DataFrame, chat_id: int = None) -> s
 # ---------------------------------------------------------------
 # BOTONES INTERACTIVOS
 # ---------------------------------------------------------------
-BOTONES_ACCIONES = {
-    "inline_keyboard": [
-        [
-            {"text": "📊 Ver Gráfica Oficial", "callback_data": "btn_chart"},
-            {"text": "📁 Descargar Excel Avanzado", "callback_data": "btn_excel"}
-        ],
-        [
-            {"text": "🔄 Actualizar Resumen", "callback_data": "btn_summary"}
-        ]
-    ]
-}
+BOTONES_ACCIONES = build_main_menu_keyboard(has_file=False)
+
+def get_menu_markup(chat_id: int):
+    """Retorna el teclado apropiado según si el usuario tiene archivo subido o consulta la hoja oficial."""
+    has_f = (chat_id in DATAFRAME_SESION and bool(DATAFRAME_SESION[chat_id].get("raw_bytes")))
+    return build_main_menu_keyboard(has_file=has_f)
 
 # ---------------------------------------------------------------
 # GESTOR DE ARCHIVOS Y MODO HÍBRIDO (Telecom NOC vs Analista Universal)
@@ -1054,9 +1060,16 @@ async def run_bot():
                                     data={"chat_id": cb_chat_id, "caption": f"📁 {out_name} con fórmulas vivas, formatos y gráficas."},
                                     files=files
                                 )
+                                report_card = format_executive_report_card(
+                                    titulo_accion="⭐ Aplicar Todo (Pack 3 en 1)",
+                                    file_name=f_name,
+                                    total_filas=DATAFRAME_SESION[cb_chat_id].get("total_filas", 0),
+                                    sheet_name=DATAFRAME_SESION[cb_chat_id].get("active_sheet", "Base_Datos"),
+                                    summary_detail=out_msg
+                                )
                                 await client.post(
                                     f"{BASE_URL}/sendMessage",
-                                    json={"chat_id": cb_chat_id, "text": out_msg, "reply_markup": BOTONES_ACCIONES}
+                                    json={"chat_id": cb_chat_id, "text": report_card, "reply_markup": get_menu_markup(cb_chat_id)}
                                 )
                             else:
                                 await send_excel_to_user(client, cb_chat_id, df=df_btn, titulo_reporte=label_btn)
@@ -1064,8 +1077,90 @@ async def run_bot():
                             resumen = await ask_ai_chat("Dame el resumen general del turno", df_btn, chat_id=cb_chat_id)
                             await client.post(
                                 f"{BASE_URL}/sendMessage",
-                                json={"chat_id": cb_chat_id, "text": resumen, "reply_markup": BOTONES_ACCIONES}
+                                json={"chat_id": cb_chat_id, "text": resumen, "reply_markup": get_menu_markup(cb_chat_id)}
                             )
+                        elif cb_data == "btn_help":
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": cb_chat_id, "text": format_help_card(), "reply_markup": get_menu_markup(cb_chat_id)}
+                            )
+                        elif cb_data == "btn_reset":
+                            if cb_chat_id in DATAFRAME_SESION:
+                                del DATAFRAME_SESION[cb_chat_id]
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": cb_chat_id, "text": "🔄 Sesión restablecida hacia la base oficial en vivo.", "reply_markup": build_main_menu_keyboard(has_file=False)}
+                            )
+                        elif cb_data == "menu_main":
+                            has_f = (cb_chat_id in DATAFRAME_SESION and bool(DATAFRAME_SESION[cb_chat_id].get("raw_bytes")))
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": cb_chat_id, "text": "🏠 **Menú Principal de Agente 007:**", "reply_markup": build_main_menu_keyboard(has_file=has_f)}
+                            )
+                        elif cb_data == "menu_cats":
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": cb_chat_id, "text": format_categories_menu_card(), "reply_markup": build_categories_keyboard()}
+                            )
+                        elif cb_data.startswith("cat:"):
+                            cat_key = cb_data.split(":", 1)[1]
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": cb_chat_id, "text": format_category_detail_card(cat_key), "reply_markup": build_category_shortcuts_keyboard(cat_key)}
+                            )
+                        elif cb_data.startswith("shortcut:"):
+                            s_key = cb_data.split(":", 1)[1]
+                            if cb_chat_id in DATAFRAME_SESION and DATAFRAME_SESION[cb_chat_id].get("raw_bytes"):
+                                raw_b = DATAFRAME_SESION[cb_chat_id]["raw_bytes"]
+                                f_name = DATAFRAME_SESION[cb_chat_id]["filename"]
+                                
+                                if s_key == "todas":
+                                    s_title = "⭐ Aplicar Pack 3 en 1"
+                                    s_instruccion = "todas"
+                                elif s_key in ATAJOS:
+                                    s_title = ATAJOS[s_key]["titulo"]
+                                    s_instruccion = ATAJOS[s_key]["instruccion"]
+                                else:
+                                    s_title = s_key
+                                    s_instruccion = s_key
+                                
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": cb_chat_id, "text": f"⚡ Ejecutando: **{s_title}** sobre `{f_name}`..."}
+                                )
+                                
+                                try:
+                                    res_bytes, out_name, out_msg, graph_hist = await run_agent_graph(raw_b, s_instruccion, f_name)
+                                except Exception:
+                                    res_bytes, out_name, out_msg = process_universal_excel(raw_b, s_instruccion, f_name)
+                                    graph_hist = []
+                                
+                                DATAFRAME_SESION[cb_chat_id]["raw_bytes"] = res_bytes
+                                save_user_session(cb_chat_id, DATAFRAME_SESION[cb_chat_id].get("file_id", ""), f_name, res_bytes, DATAFRAME_SESION[cb_chat_id].get("sheets", []), DATAFRAME_SESION[cb_chat_id].get("active_sheet", "Base_Datos"), DATAFRAME_SESION[cb_chat_id].get("df"))
+                                
+                                files = {"document": (out_name, res_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+                                await client.post(
+                                    f"{BASE_URL}/sendDocument",
+                                    data={"chat_id": cb_chat_id, "caption": f"📁 {out_name} generado con éxito."},
+                                    files=files
+                                )
+                                report_card = format_executive_report_card(
+                                    titulo_accion=s_title,
+                                    file_name=f_name,
+                                    total_filas=DATAFRAME_SESION[cb_chat_id].get("total_filas", 0),
+                                    sheet_name=DATAFRAME_SESION[cb_chat_id].get("active_sheet", "Base_Datos"),
+                                    summary_detail=out_msg,
+                                    graph_history=graph_hist
+                                )
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": cb_chat_id, "text": report_card, "reply_markup": build_main_menu_keyboard(has_file=True)}
+                                )
+                            else:
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": cb_chat_id, "text": "⚠️ Primero arrastra o sube un archivo Excel o CSV para aplicar este atajo.", "reply_markup": build_main_menu_keyboard(has_file=False)}
+                                )
                         continue
 
                     # 2. MANEJAR MENSAJES (Texto o Documentos subidos)
@@ -1117,21 +1212,16 @@ async def run_bot():
                                     }
                                 )
                             else:
-                                msg_confirm = (
-                                    f"✅ **¡Archivo '{file_name}' cargado con éxito!** 🫡\n\n"
-                                    f"• 📑 **Pestañas detectadas:** {sheets_str}\n"
-                                    f"• 📊 **Pestaña analizada:** '{sheet_active}' ({total_f} registros)\n"
-                                    f"• 🏷️ **Columnas detectadas:** {col_list}\n\n"
-                                    "¿Qué operación deseas ejecutar, jefe?\n"
-                                    "1️⃣ *Calcula el margen y resalta en verde > 35%* (o escribe **1**)\n"
-                                    "2️⃣ *Genera tabla dinámica y gráfico circular por Estado* (o escribe **2**)\n"
-                                    "3️⃣ *Agrega módulo de búsqueda con BUSCARV / XLOOKUP* (o escribe **3**)\n"
-                                    "⭐ *Aplica las 3 transformaciones juntas* (o escribe **todas**)\n\n"
-                                    "💡 *(Para volver a la base oficial de Google Sheet, escribe /reset)*"
+                                card_upload = format_file_uploaded_card(
+                                    file_name=file_name,
+                                    total_filas=total_f,
+                                    sheets=sheets_found,
+                                    active_sheet=sheet_active,
+                                    columns=list(df_uploaded.columns)
                                 )
                                 await client.post(
                                     f"{BASE_URL}/sendMessage",
-                                    json={"chat_id": chat_id, "text": msg_confirm, "reply_markup": BOTONES_ACCIONES}
+                                    json={"chat_id": chat_id, "text": card_upload, "reply_markup": build_main_menu_keyboard(has_file=True)}
                                 )
                                 continue
                         except Exception as e:
@@ -1148,6 +1238,21 @@ async def run_bot():
                         continue
 
                     print(f"Mensaje de {chat_id}: {texto}", flush=True)
+
+                    # Comandos de Menú y Atajos Rápidos
+                    if texto_lower in ['/atajos', 'atajos', '/menu', 'menu', '/opciones', 'opciones']:
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={"chat_id": chat_id, "text": format_categories_menu_card(), "reply_markup": build_categories_keyboard()}
+                        )
+                        continue
+
+                    if texto_lower in ['/ayuda', 'ayuda', '/help', 'help']:
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={"chat_id": chat_id, "text": format_help_card(), "reply_markup": get_menu_markup(chat_id)}
+                        )
+                        continue
 
                     # Selector de Modo Híbrido (Telecom NOC vs Analista Universal)
                     if texto_lower in ['/modo', 'modo']:
@@ -1300,9 +1405,17 @@ async def run_bot():
                                 data={"chat_id": chat_id, "caption": f"📁 {out_name} generado con fórmulas vivas y formatos."},
                                 files=files
                             )
+                            report_card = format_executive_report_card(
+                                titulo_accion=f"\"{texto}\"",
+                                file_name=f_name,
+                                total_filas=DATAFRAME_SESION[chat_id].get("total_filas", 0),
+                                sheet_name=DATAFRAME_SESION[chat_id].get("active_sheet", "Base_Datos"),
+                                summary_detail=out_msg,
+                                graph_history=graph_history if 'graph_history' in locals() else None
+                            )
                             await client.post(
                                 f"{BASE_URL}/sendMessage",
-                                json={"chat_id": chat_id, "text": out_msg, "reply_markup": BOTONES_ACCIONES}
+                                json={"chat_id": chat_id, "text": report_card, "reply_markup": build_main_menu_keyboard(has_file=True)}
                             )
                             continue
                         except Exception as e_univ:
