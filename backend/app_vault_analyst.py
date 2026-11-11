@@ -106,29 +106,184 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilos CSS corporativos
+# Estilos CSS corporativos - Tema Moderno Pastel & Morado
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    /* Fondo principal con degradado suave */
+    .stApp {
+        background: linear-gradient(180deg, #FDFBFF 0%, #F8F6FF 100%);
+    }
+
+    /* Título principal con degradado morado elegante */
     .main-header {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #1F4E78;
-        margin-bottom: 0px;
+        font-size: 2.3rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #4C1D95 0%, #6D28D9 50%, #8B5CF6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        letter-spacing: -0.5px;
+        margin-bottom: 8px;
     }
+
+    /* Subtítulo suave y legible */
     .sub-header {
-        font-size: 1.05rem;
-        color: #555;
-        margin-bottom: 20px;
+        font-size: 1.02rem;
+        color: #4B5563;
+        line-height: 1.6;
+        margin-bottom: 24px;
     }
+
+    /* Insignia de seguridad en tonos pastel morados */
     .security-badge {
-        background-color: #E2EFDA;
-        border: 1px solid #375623;
-        color: #375623;
-        padding: 6px 14px;
-        border-radius: 6px;
+        background: #F3E8FF;
+        border: 1px solid #D8B4FE;
+        color: #6D28D9;
+        padding: 8px 18px;
+        border-radius: 9999px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 18px;
+        box-shadow: 0 2px 8px rgba(124, 58, 237, 0.08);
+    }
+
+    /* Botones generales (secundarios) */
+    div.stButton > button {
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        border: 1.5px solid #DDD6FE !important;
+        background: #FFFFFF !important;
+        color: #6D28D9 !important;
+        padding: 0.6rem 1.2rem !important;
+        transition: all 0.25s ease !important;
+        box-shadow: 0 2px 6px rgba(109, 40, 217, 0.04) !important;
+    }
+
+    div.stButton > button:hover {
+        background: #F5F3FF !important;
+        border-color: #8B5CF6 !important;
+        color: #5B21B6 !important;
+        box-shadow: 0 6px 16px rgba(124, 58, 237, 0.15) !important;
+        transform: translateY(-2px) !important;
+    }
+
+    /* Botón Primario (⭐ APLICAR TODAS) */
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #7C3AED 0%, #9333EA 100%) !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        font-weight: 700 !important;
+        box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35) !important;
+    }
+
+    div.stButton > button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #6D28D9 0%, #7E22CE 100%) !important;
+        box-shadow: 0 8px 25px rgba(124, 58, 237, 0.5) !important;
+        transform: translateY(-2px) !important;
+    }
+
+    /* Botón de descarga de Excel */
+    div.stDownloadButton > button {
+        background: linear-gradient(135deg, #059669 0%, #10B981 100%) !important;
+        color: #FFFFFF !important;
+        border-radius: 12px !important;
+        border: none !important;
+        font-weight: 700 !important;
+        box-shadow: 0 6px 18px rgba(16, 185, 129, 0.25) !important;
+        padding: 0.75rem 1.5rem !important;
+    }
+
+    div.stDownloadButton > button:hover {
+        background: linear-gradient(135deg, #047857 0%, #059669 100%) !important;
+        transform: translateY(-2px) !important;
+    }
+
+    /* Cuadros de texto e inputs */
+    div.stTextInput > div > div > input {
+        border-radius: 12px !important;
+        border: 1.5px solid #DDD6FE !important;
+        background-color: #FFFFFF !important;
+        color: #1F2937 !important;
+        padding: 12px 16px !important;
+        font-size: 0.95rem !important;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.02) !important;
+    }
+
+    div.stTextInput > div > div > input:focus {
+        border-color: #7C3AED !important;
+        box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2) !important;
+    }
+
+    /* Métricas estilo tarjeta moderna */
+    [data-testid="stMetric"] {
+        background: #FFFFFF !important;
+        border: 1px solid #EDE9FE !important;
+        border-radius: 16px !important;
+        padding: 16px !important;
+        box-shadow: 0 4px 15px rgba(124, 58, 237, 0.05) !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #6B7280 !important;
+        font-weight: 600 !important;
+        font-size: 0.85rem !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: #4C1D95 !important;
+        font-weight: 800 !important;
+    }
+
+    /* Desplegables (Expanders) */
+    div[data-testid="stExpander"] {
+        background: #FFFFFF !important;
+        border: 1.5px solid #EDE9FE !important;
+        border-radius: 16px !important;
+        box-shadow: 0 4px 15px rgba(124, 58, 237, 0.04) !important;
+        overflow: hidden !important;
+    }
+    div[data-testid="stExpander"] details summary {
+        color: #4C1D95 !important;
+        font-weight: 700 !important;
+        padding: 12px 18px !important;
+    }
+
+    /* Uploader de archivos */
+    section[data-testid="stFileUploadDropzone"] {
+        border: 2px dashed #C4B5FD !important;
+        border-radius: 18px !important;
+        background: #FAF8FF !important;
+        padding: 24px !important;
+    }
+    section[data-testid="stFileUploadDropzone"]:hover {
+        border-color: #7C3AED !important;
+        background: #F5EEFF !important;
+    }
+
+    /* Barra lateral */
+    section[data-testid="stSidebar"] {
+        background-color: #FAF8FE !important;
+        border-right: 1px solid #EDE9FE !important;
+    }
+
+    /* Pestañas (Tabs) */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 10px 10px 0 0;
         font-weight: 600;
-        display: inline-block;
-        margin-bottom: 15px;
+        color: #6B7280;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #7C3AED !important;
+        border-bottom-color: #7C3AED !important;
     }
 </style>
 """, unsafe_allow_html=True)
