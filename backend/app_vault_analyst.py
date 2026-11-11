@@ -110,59 +110,128 @@ st.set_page_config(
 # Estilos CSS corporativos - Tema Moderno Pastel & Morado
 st.markdown("""
 <style>
-    /* Tipografía nativa moderna de alta velocidad (sin lags externos) */
+    /* Ocultar barra de herramientas y pie de página de Streamlit para efecto app nativa */
+    #MainMenu {visibility: hidden;}
+    header[data-testid="stHeader"] {visibility: hidden; height: 0px;}
+    footer {visibility: hidden;}
+    .stDeployButton {display: none;}
+    div[data-testid="stToolbar"] {visibility: hidden; height: 0px;}
+
+    /* Tipografía nativa moderna de alta velocidad */
     html, body, [class*="css"] {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
 
-    /* Fondo principal con degradado suave */
+    /* Fondo principal con degradado sutil */
     .stApp {
-        background: linear-gradient(180deg, #FDFBFF 0%, #F8F6FF 100%);
+        background: linear-gradient(180deg, #FAF8FE 0%, #F5F2FC 100%);
     }
 
-    /* Título principal con degradado morado elegante */
-    .main-header {
-        font-size: 2.3rem;
+    /* Barra superior de app nativa */
+    .app-topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 24px;
+        background: #FFFFFF;
+        border: 1.5px solid #EDE9FE;
+        border-radius: 18px;
+        margin-bottom: 24px;
+        box-shadow: 0 4px 20px -2px rgba(124, 58, 237, 0.06);
+    }
+    .app-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .app-logo {
+        font-size: 1.8rem;
+    }
+    .app-name {
+        font-size: 1.35rem;
         font-weight: 800;
-        background: linear-gradient(135deg, #4C1D95 0%, #6D28D9 50%, #8B5CF6 100%);
+        background: linear-gradient(135deg, #4C1D95 0%, #7C3AED 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        letter-spacing: -0.5px;
-        margin-bottom: 8px;
+        letter-spacing: -0.4px;
     }
-
-    /* Subtítulo suave y legible */
-    .sub-header {
-        font-size: 1.02rem;
-        color: #4B5563;
-        line-height: 1.6;
-        margin-bottom: 24px;
-    }
-
-    /* Insignia de seguridad en tonos pastel morados */
-    .security-badge {
-        background: #F3E8FF;
-        border: 1px solid #D8B4FE;
-        color: #6D28D9;
-        padding: 8px 18px;
-        border-radius: 9999px;
+    .app-tag {
+        font-size: 0.75rem;
         font-weight: 700;
-        font-size: 0.85rem;
-        display: inline-flex;
+        color: #7C3AED;
+        background: #F3E8FF;
+        padding: 3px 10px;
+        border-radius: 9999px;
+    }
+    .app-status {
+        display: flex;
         align-items: center;
         gap: 8px;
-        margin-bottom: 18px;
-        box-shadow: 0 2px 8px rgba(124, 58, 237, 0.08);
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #059669;
+        background: #ECFDF5;
+        border: 1px solid #A7F3D0;
+        padding: 6px 14px;
+        border-radius: 9999px;
+    }
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        background-color: #10B981;
+        border-radius: 50%;
+        display: inline-block;
+        box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3);
+    }
+
+    /* Tarjetas de acción interactivas */
+    .action-card {
+        background: #FFFFFF;
+        border: 1.5px solid #EDE9FE;
+        border-radius: 16px;
+        padding: 18px 14px;
+        text-align: center;
+        box-shadow: 0 4px 14px rgba(124, 58, 237, 0.04);
+        margin-bottom: 10px;
+        min-height: 110px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        transition: all 0.25s ease;
+    }
+    .action-card:hover {
+        border-color: #C4B5FD;
+        transform: translateY(-2px);
+        box-shadow: 0 8px 22px rgba(124, 58, 237, 0.1);
+    }
+    .action-card-highlight {
+        background: linear-gradient(135deg, #FAF5FF 0%, #F3E8FF 100%);
+        border: 1.5px solid #C4B5FD;
+    }
+    .action-icon {
+        font-size: 1.6rem;
+        margin-bottom: 4px;
+    }
+    .action-title {
+        font-weight: 700;
+        font-size: 0.92rem;
+        color: #4C1D95;
+        margin-bottom: 2px;
+    }
+    .action-desc {
+        font-size: 0.78rem;
+        color: #6B7280;
     }
 
     /* Botones generales (secundarios) */
     div.stButton > button {
         border-radius: 12px !important;
-        font-weight: 600 !important;
+        font-weight: 700 !important;
         border: 1.5px solid #DDD6FE !important;
         background: #FFFFFF !important;
         color: #6D28D9 !important;
-        padding: 0.6rem 1.2rem !important;
+        padding: 0.55rem 1rem !important;
         transition: all 0.25s ease !important;
         box-shadow: 0 2px 6px rgba(109, 40, 217, 0.04) !important;
     }
@@ -180,7 +249,7 @@ st.markdown("""
         background: linear-gradient(135deg, #7C3AED 0%, #9333EA 100%) !important;
         color: #FFFFFF !important;
         border: none !important;
-        font-weight: 700 !important;
+        font-weight: 800 !important;
         box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35) !important;
     }
 
@@ -194,11 +263,12 @@ st.markdown("""
     div.stDownloadButton > button {
         background: linear-gradient(135deg, #059669 0%, #10B981 100%) !important;
         color: #FFFFFF !important;
-        border-radius: 12px !important;
+        border-radius: 14px !important;
         border: none !important;
-        font-weight: 700 !important;
-        box-shadow: 0 6px 18px rgba(16, 185, 129, 0.25) !important;
-        padding: 0.75rem 1.5rem !important;
+        font-weight: 800 !important;
+        font-size: 1.05rem !important;
+        box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3) !important;
+        padding: 0.85rem 1.8rem !important;
     }
 
     div.stDownloadButton > button:hover {
@@ -206,15 +276,15 @@ st.markdown("""
         transform: translateY(-2px) !important;
     }
 
-    /* Cuadros de texto e inputs */
+    /* Cuadros de texto e inputs estilo Copilot */
     div.stTextInput > div > div > input {
-        border-radius: 12px !important;
+        border-radius: 14px !important;
         border: 1.5px solid #DDD6FE !important;
         background-color: #FFFFFF !important;
         color: #1F2937 !important;
-        padding: 12px 16px !important;
-        font-size: 0.95rem !important;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.02) !important;
+        padding: 14px 18px !important;
+        font-size: 0.98rem !important;
+        box-shadow: 0 2px 8px rgba(124, 58, 237, 0.04) !important;
     }
 
     div.stTextInput > div > div > input:focus {
@@ -225,41 +295,42 @@ st.markdown("""
     /* Métricas estilo tarjeta moderna */
     [data-testid="stMetric"] {
         background: #FFFFFF !important;
-        border: 1px solid #EDE9FE !important;
-        border-radius: 16px !important;
-        padding: 16px !important;
+        border: 1.5px solid #EDE9FE !important;
+        border-radius: 18px !important;
+        padding: 18px !important;
         box-shadow: 0 4px 15px rgba(124, 58, 237, 0.05) !important;
     }
     [data-testid="stMetricLabel"] {
         color: #6B7280 !important;
         font-weight: 600 !important;
-        font-size: 0.85rem !important;
+        font-size: 0.82rem !important;
     }
     [data-testid="stMetricValue"] {
         color: #4C1D95 !important;
         font-weight: 800 !important;
+        font-size: 1.35rem !important;
     }
 
     /* Desplegables (Expanders) */
     div[data-testid="stExpander"] {
         background: #FFFFFF !important;
         border: 1.5px solid #EDE9FE !important;
-        border-radius: 16px !important;
-        box-shadow: 0 4px 15px rgba(124, 58, 237, 0.04) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 4px 16px rgba(124, 58, 237, 0.04) !important;
         overflow: hidden !important;
     }
     div[data-testid="stExpander"] details summary {
         color: #4C1D95 !important;
         font-weight: 700 !important;
-        padding: 12px 18px !important;
+        padding: 14px 20px !important;
     }
 
     /* Uploader de archivos */
     section[data-testid="stFileUploadDropzone"] {
         border: 2px dashed #C4B5FD !important;
-        border-radius: 18px !important;
+        border-radius: 20px !important;
         background: #FAF8FF !important;
-        padding: 24px !important;
+        padding: 28px !important;
     }
     section[data-testid="stFileUploadDropzone"]:hover {
         border-color: #7C3AED !important;
@@ -269,17 +340,19 @@ st.markdown("""
     /* Barra lateral */
     section[data-testid="stSidebar"] {
         background-color: #FAF8FE !important;
-        border-right: 1px solid #EDE9FE !important;
+        border-right: 1.5px solid #EDE9FE !important;
     }
 
     /* Pestañas (Tabs) */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
+        border-bottom: 2px solid #EDE9FE;
     }
     .stTabs [data-baseweb="tab"] {
         border-radius: 10px 10px 0 0;
         font-weight: 600;
         color: #6B7280;
+        padding: 10px 20px;
     }
     .stTabs [aria-selected="true"] {
         color: #7C3AED !important;
@@ -312,10 +385,23 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-# Cabecera principal
-st.markdown('<div class="main-header">🛡️ VaultAnalyst AI — Analista Bóveda Local</div>', unsafe_allow_html=True)
-st.markdown('<div class="security-badge">🟢 MODO AIR-GAPPED ACTIVO: Procesamiento 100% Desconectado y Privado</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Arrastra tu archivo Excel o CSV para analizar márgenes, crear tablas dinámicas, incrustar gráficos y generar fórmulas vivas sin exponer información confidencial.</div>', unsafe_allow_html=True)
+# Barra superior estilo App Nativa
+st.markdown("""
+<div class="app-topbar">
+    <div class="app-brand">
+        <span class="app-logo">🛡️</span>
+        <div>
+            <div class="app-name">VaultAnalyst AI</div>
+            <div style="font-size: 0.8rem; color: #6B7280; font-weight: 500;">Bóveda Analítica Local On-Premise</div>
+        </div>
+        <span class="app-tag">v4.0 Enterprise</span>
+    </div>
+    <div class="app-status">
+        <span class="status-dot"></span>
+        <span>Air-Gapped RAM Seguro</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # Sección de Carga de Archivos Drag & Drop
 tab_local, tab_sheet = st.tabs(["📁 Archivo Local (.xlsx, .csv)", "🌐 Enlace Google Sheets en Vivo"])
@@ -370,34 +456,85 @@ if file_bytes is not None:
         if not df_init_preview.empty:
             st.dataframe(df_init_preview.head(10), use_container_width=True)
 
-    st.markdown("---")
-    st.markdown("### ⚙️ Selecciona las Transformaciones a Aplicar:")
+    st.markdown("""
+    <div style="display: flex; justify-content: space-between; align-items: center; margin: 28px 0 16px 0;">
+        <div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: #1E1B4B; letter-spacing: -0.3px;">
+                ⚡ Transformaciones Inteligentes
+            </div>
+            <div style="font-size: 0.85rem; color: #6B7280; font-weight: 500; margin-top: 2px;">
+                Aplica recetas predefinidas de analista o pídele a la IA en lenguaje natural
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
     with col_btn1:
-        opt1 = st.button("1️⃣ Margen + Verde > 35%", use_container_width=True)
+        st.markdown("""
+        <div class="action-card">
+            <div class="action-icon">📈</div>
+            <div class="action-title">Semáforo Verde</div>
+            <div class="action-desc">Márgenes altos > 35%</div>
+        </div>
+        """, unsafe_allow_html=True)
+        opt1 = st.button("Aplicar Semáforo", use_container_width=True)
+
     with col_btn2:
-        opt2 = st.button("2️⃣ Tabla + Gráfico Circular", use_container_width=True)
+        st.markdown("""
+        <div class="action-card">
+            <div class="action-icon">🍩</div>
+            <div class="action-title">Tabla Dinámica</div>
+            <div class="action-desc">Resumen con gráfico dona</div>
+        </div>
+        """, unsafe_allow_html=True)
+        opt2 = st.button("Crear Dinámica", use_container_width=True)
+
     with col_btn3:
-        opt3 = st.button("3️⃣ Buscador BUSCARV", use_container_width=True)
+        st.markdown("""
+        <div class="action-card">
+            <div class="action-icon">🔍</div>
+            <div class="action-title">Buscador BUSCARV</div>
+            <div class="action-desc">Módulo interactivo XLOOKUP</div>
+        </div>
+        """, unsafe_allow_html=True)
+        opt3 = st.button("Insertar Buscador", use_container_width=True)
+
     with col_btn4:
+        st.markdown("""
+        <div class="action-card action-card-highlight">
+            <div class="action-icon">⭐</div>
+            <div class="action-title" style="color: #6D28D9;">Pack 3 en 1</div>
+            <div class="action-desc" style="color: #7C3AED; font-weight: 600;">Todas las mejoras juntas</div>
+        </div>
+        """, unsafe_allow_html=True)
         opt_all = st.button("⭐ APLICAR TODAS", type="primary", use_container_width=True)
 
     # Catálogo Unificado de Atajos
     atajo_instruction = None
-    with st.expander("⚡ Catálogo de Atajos Rápidos por Categoría (Limpieza, Semáforos, Tablas, Fórmulas)", expanded=False):
+    with st.expander("⚡ Catálogo Completo de Atajos por Categoría (12 Operaciones)", expanded=False):
         atajo_map = {f"[{CATEGORIAS[info['categoria']]['nombre']}] {info['titulo']}": info["instruccion"] for k, info in ATAJOS.items()}
         sel_atajo = st.selectbox("Elige una operación predefinida del catálogo:", ["-- Selecciona un atajo --"] + list(atajo_map.keys()))
         if st.button("🚀 Aplicar Atajo Seleccionado"):
             if sel_atajo != "-- Selecciona un atajo --":
                 atajo_instruction = atajo_map[sel_atajo]
 
-    custom_instruction = st.text_input(
-        "💬 O escribe una instrucción personalizada en lenguaje natural:",
-        placeholder="Ej: Calcula el margen de ganancia y resalta los mejores en verde...",
-        key="custom_inst"
-    )
-    btn_custom = st.button("⚡ Ejecutar Instrucción Personalizada")
+    st.markdown("""
+    <div style="margin-top: 24px; margin-bottom: 8px; font-weight: 700; color: #1E1B4B; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+        <span>💬</span> <span>Instrucción Personalizada (IA Copilot Local):</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_input, col_exec = st.columns([5, 1.4])
+    with col_input:
+        custom_instruction = st.text_input(
+            "Instrucción libre:",
+            placeholder="Ej: Pon de color rojo al vendedor con mayor margen, o separa nombre y apellido...",
+            key="custom_inst",
+            label_visibility="collapsed"
+        )
+    with col_exec:
+        btn_custom = st.button("⚡ Ejecutar IA", type="primary", use_container_width=True)
 
     # Determinar qué acción ejecutar
     instruction = None
