@@ -29,6 +29,7 @@ from universal_code_interpreter import process_any_excel_instruction, fetch_goog
 from agent_graph import run_agent_graph
 from shortcuts_config import CATEGORIAS, ATAJOS
 
+@st.cache_data(show_spinner=False)
 def get_smart_preview_df(file_bytes: bytes, max_rows: int = 15) -> pd.DataFrame:
     """Construye un DataFrame limpio para la vista previa visual, calculando fórmulas y eliminando 'None'."""
     try:
@@ -103,16 +104,15 @@ st.set_page_config(
     page_title="VaultAnalyst AI - Zero-Trust Local",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Estilos CSS corporativos - Tema Moderno Pastel & Morado
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-
+    /* Tipografía nativa moderna de alta velocidad (sin lags externos) */
     html, body, [class*="css"] {
-        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
 
     /* Fondo principal con degradado suave */
@@ -288,21 +288,29 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Barra lateral informativa
+# Barra lateral informativa (Moderna y plegable)
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/shield.png", width=64)
-    st.markdown("### 🛡️ **VaultAnalyst AI**")
-    st.markdown("**Arquitectura Zero-Trust On-Premise**")
-    st.markdown("---")
     st.markdown("""
-    **🔒 Garantías de Privacidad:**
-    - Cero transmisión de datos a servidores externos.
-    - Cómputo ejecutado al 100% en la RAM de este equipo.
-    - Fórmulas dinámicas de Excel nativas (`VLOOKUP`, `IFERROR`, `COUNTIF`).
-    - Compatible con políticas de Compliance bancario (GDPR / ISO 27001).
-    """)
-    st.markdown("---")
-    st.caption("Agente 007 Suite • Versión 3.6 Localhost")
+    <div style="background: white; border: 1.5px solid #EDE9FE; border-radius: 18px; padding: 22px 16px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.05); text-align: center; margin-bottom: 16px;">
+        <div style="font-size: 2.6rem; margin-bottom: 6px;">🛡️</div>
+        <div style="font-weight: 800; font-size: 1.25rem; color: #4C1D95; letter-spacing: -0.3px;">VaultAnalyst AI</div>
+        <div style="font-size: 0.78rem; font-weight: 700; color: #7C3AED; margin-top: 6px; background: #F3E8FF; padding: 4px 12px; border-radius: 9999px; display: inline-block;">Zero-Trust On-Premise</div>
+    </div>
+    <div style="background: white; border: 1.5px solid #EDE9FE; border-radius: 18px; padding: 18px 16px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.04); margin-bottom: 16px;">
+        <div style="font-weight: 700; color: #1F2937; margin-bottom: 12px; font-size: 0.92rem; display: flex; align-items: center; gap: 6px;">
+            <span>🔒</span> <span>Garantías de Privacidad</span>
+        </div>
+        <div style="color: #4B5563; font-size: 0.84rem; line-height: 1.6;">
+            <p style="margin-bottom: 8px;">✨ <b>Cero transmisión:</b> datos 100% aislados en este equipo.</p>
+            <p style="margin-bottom: 8px;">⚡ <b>RAM Local:</b> procesamiento en memoria protegida.</p>
+            <p style="margin-bottom: 8px;">📊 <b>Fórmulas Vivas:</b> Excel nativo (VLOOKUP, SUM).</p>
+            <p style="margin-bottom: 0px;">🏛️ <b>Cumplimiento:</b> estándar bancario GDPR / ISO 27001.</p>
+        </div>
+    </div>
+    <div style="text-align: center; color: #9CA3AF; font-size: 0.78rem; font-weight: 500;">
+        Agente 007 Suite • v4.0 Localhost
+    </div>
+    """, unsafe_allow_html=True)
 
 # Cabecera principal
 st.markdown('<div class="main-header">🛡️ VaultAnalyst AI — Analista Bóveda Local</div>', unsafe_allow_html=True)
