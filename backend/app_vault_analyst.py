@@ -194,64 +194,64 @@ st.markdown("""
         box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3);
     }
 
-    /* Tarjetas de acción interactivas */
+    /* Tarjetas de acción interactivas compactas y elegantes */
     .action-card {
         background: #FFFFFF;
         border: 1.5px solid #EDE9FE;
-        border-radius: 16px;
-        padding: 18px 14px;
+        border-radius: 12px;
+        padding: 8px 10px;
         text-align: center;
-        box-shadow: 0 4px 14px rgba(124, 58, 237, 0.04);
-        margin-bottom: 10px;
-        min-height: 110px;
+        box-shadow: 0 2px 8px rgba(124, 58, 237, 0.04);
+        margin-bottom: 4px;
+        min-height: 60px;
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        transition: all 0.25s ease;
+        transition: all 0.2s ease;
     }
     .action-card:hover {
         border-color: #C4B5FD;
         transform: translateY(-2px);
-        box-shadow: 0 8px 22px rgba(124, 58, 237, 0.1);
+        box-shadow: 0 4px 14px rgba(124, 58, 237, 0.1);
     }
     .action-card-highlight {
         background: linear-gradient(135deg, #FAF5FF 0%, #F3E8FF 100%);
         border: 1.5px solid #C4B5FD;
     }
     .action-icon {
-        font-size: 1.6rem;
-        margin-bottom: 4px;
+        font-size: 1.25rem;
+        margin-bottom: 2px;
     }
     .action-title {
         font-weight: 700;
-        font-size: 0.92rem;
+        font-size: 0.82rem;
         color: #4C1D95;
-        margin-bottom: 2px;
     }
     .action-desc {
-        font-size: 0.78rem;
+        font-size: 0.72rem;
         color: #6B7280;
     }
 
     /* Botones generales (secundarios) */
     div.stButton > button {
-        border-radius: 12px !important;
+        border-radius: 10px !important;
         font-weight: 700 !important;
+        font-size: 0.8rem !important;
         border: 1.5px solid #DDD6FE !important;
         background: #FFFFFF !important;
         color: #6D28D9 !important;
-        padding: 0.55rem 1rem !important;
-        transition: all 0.25s ease !important;
-        box-shadow: 0 2px 6px rgba(109, 40, 217, 0.04) !important;
+        padding: 0.35rem 0.75rem !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 2px 4px rgba(109, 40, 217, 0.03) !important;
     }
 
     div.stButton > button:hover {
         background: #F5F3FF !important;
         border-color: #8B5CF6 !important;
         color: #5B21B6 !important;
-        box-shadow: 0 6px 16px rgba(124, 58, 237, 0.15) !important;
-        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 12px rgba(124, 58, 237, 0.12) !important;
+        transform: translateY(-1px) !important;
     }
 
     /* Botón Primario (⭐ APLICAR TODAS) */
@@ -448,8 +448,12 @@ with tab_local:
         help="El archivo se procesa estrictamente en la memoria RAM de tu computadora. Ningún byte viaja a la nube."
     )
     if uploaded_local is not None:
-        file_bytes = uploaded_local.read()
-        file_name = uploaded_local.name
+        if "last_uploaded_name" not in st.session_state or st.session_state.get("last_uploaded_name") != uploaded_local.name:
+            st.session_state["file_bytes"] = uploaded_local.getvalue()
+            st.session_state["file_name"] = uploaded_local.name
+            st.session_state["last_uploaded_name"] = uploaded_local.name
+        file_bytes = st.session_state.get("file_bytes")
+        file_name = st.session_state.get("file_name", "archivo.xlsx")
 
 with tab_sheet:
     sheet_url_input = st.text_input(
@@ -467,9 +471,13 @@ with tab_sheet:
                 except Exception as e_sh:
                     st.error(f"Error importando Google Sheet: {e_sh}")
 
-if file_bytes is None and "sheet_bytes" in st.session_state:
-    file_bytes = st.session_state["sheet_bytes"]
-    file_name = st.session_state.get("sheet_name", "Google_Sheet_En_Vivo.xlsx")
+if file_bytes is None:
+    if "file_bytes" in st.session_state:
+        file_bytes = st.session_state["file_bytes"]
+        file_name = st.session_state.get("file_name", "archivo.xlsx")
+    elif "sheet_bytes" in st.session_state:
+        file_bytes = st.session_state["sheet_bytes"]
+        file_name = st.session_state.get("sheet_name", "Google_Sheet_En_Vivo.xlsx")
 
 if file_bytes is not None:
 
@@ -541,14 +549,63 @@ if file_bytes is not None:
         """, unsafe_allow_html=True)
         opt_all = st.button("⭐ APLICAR TODAS", type="primary", use_container_width=True)
 
-    # Catálogo Unificado de Atajos
+    # Catálogo de Atajos Agrupados por Secciones
     atajo_instruction = None
-    with st.expander("⚡ Catálogo Completo de Atajos por Categoría (12 Operaciones)", expanded=False):
-        atajo_map = {f"[{CATEGORIAS[info['categoria']]['nombre']}] {info['titulo']}": info["instruccion"] for k, info in ATAJOS.items()}
-        sel_atajo = st.selectbox("Elige una operación predefinida del catálogo:", ["-- Selecciona un atajo --"] + list(atajo_map.keys()))
-        if st.button("🚀 Aplicar Atajo Seleccionado"):
-            if sel_atajo != "-- Selecciona un atajo --":
-                atajo_instruction = atajo_map[sel_atajo]
+    with st.expander("⚡ Catálogo de Atajos Rápidos (Agrupados por Sección)", expanded=False):
+        tab_limp, tab_col, tab_tablas, tab_calc = st.tabs([
+            "🧹 Limpieza de Datos",
+            "🎨 Semáforos y Colores",
+            "📊 Tablas y Gráficas",
+            "🔢 Cálculos Matemáticos & Fórmulas"
+        ])
+
+        with tab_limp:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button("✂️ Separar Nombre y Apellido", use_container_width=True):
+                    atajo_instruction = ATAJOS["separar_nombres"]["instruccion"]
+            with c2:
+                if st.button("🗑️ Eliminar Filas Duplicadas", use_container_width=True):
+                    atajo_instruction = ATAJOS["quitar_duplicados"]["instruccion"]
+            with c3:
+                if st.button("🔤 Formato Tipo Título", use_container_width=True):
+                    atajo_instruction = ATAJOS["formato_titulos"]["instruccion"]
+
+        with tab_col:
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                if st.button("🔴 Top Vendedor Margen", use_container_width=True):
+                    atajo_instruction = ATAJOS["top_margen_rojo"]["instruccion"]
+            with c2:
+                if st.button("🟢 Margen > 35%", use_container_width=True):
+                    atajo_instruction = ATAJOS["verde_margen_35"]["instruccion"]
+            with c3:
+                if st.button("🟡 Margen > 50%", use_container_width=True):
+                    atajo_instruction = ATAJOS["amarillo_margen_50"]["instruccion"]
+            with c4:
+                if st.button("🟠 Alerta Ventas Bajas", use_container_width=True):
+                    atajo_instruction = ATAJOS["alerta_bajas_ventas"]["instruccion"]
+
+        with tab_tablas:
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("🍩 Dinámica + Gráfico Circular", use_container_width=True):
+                    atajo_instruction = ATAJOS["tabla_grafico_circular"]["instruccion"]
+            with c2:
+                if st.button("📊 Resumen Categoría + Barras", use_container_width=True):
+                    atajo_instruction = ATAJOS["resumen_categoria"]["instruccion"]
+
+        with tab_calc:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button("🔍 Buscador BUSCARV / XLOOKUP", use_container_width=True):
+                    atajo_instruction = ATAJOS["buscador_buscarv"]["instruccion"]
+            with c2:
+                if st.button("∑ Fila de Totales y Promedios", use_container_width=True):
+                    atajo_instruction = ATAJOS["fila_totales"]["instruccion"]
+            with c3:
+                if st.button("💵 Calcular Comisión (5%)", use_container_width=True):
+                    atajo_instruction = ATAJOS["columna_comision"]["instruccion"]
 
     st.markdown("""
     <div style="margin-top: 24px; margin-bottom: 8px; font-weight: 700; color: #1E1B4B; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
