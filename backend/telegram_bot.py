@@ -713,24 +713,93 @@ def analyze_query_with_df(pregunta: str, df: pd.DataFrame) -> str:
 # ---------------------------------------------------------------
 HISTORIAL_CHAT = {}  # {chat_id: [{"role": "user"|"assistant", "content": "..."}]}
 
-async def ask_ai_chat(pregunta: str, df: pd.DataFrame, chat_id: int = None) -> str:
+async def classify_user_intent(texto: str, df_summary: str) -> str:
+    """
+    Clasifica el mensaje del usuario en una de 3 categorías:
+    - PREGUNTA_DATOS: quiere saber algo, consultar datos, pedir un análisis verbal
+    - ACCION_EXCEL: quiere modificar el archivo, aplicar fórmulas, colorear, etc.
+    - CONFIRMAR_EXCEL: está confirmando que quiere recibir el archivo (sí, mándamelo, etc.)
+    Retorna uno de esos 3 strings.
+    """
+    if not GROQ_API_KEY:
+        return "ACCION_EXCEL"
+
+    confirmaciones = [
+        "si", "sí", "si mandamelo", "sí mándamelo", "si enviamelo", "sí envíamelo",
+        "mandamelo", "mándamelo", "enviamelo", "envíamelo", "si ponlo", "sí ponlo",
+        "adelante", "procede", "hazlo", "si hazlo", "ponlo en el archivo", "si preparalo",
+        "genéralo", "generalo", "si generalo", "ok", "dale", "sí dale", "si dale"
+    ]
+    t = texto.lower().strip().rstrip(".")
+    if t in confirmaciones or any(t.startswith(c) for c in confirmaciones):
+        return "CONFIRMAR_EXCEL"
+
+    system_prompt = (
+        "Eres un clasificador de intención para un asistente de datos. "
+        "El usuario tiene un archivo Excel cargado en sesión. "
+        "Tu tarea es clasificar el mensaje en UNA sola categoría:\n\n"
+        "- PREGUNTA_DATOS: el usuario quiere saber información, pide cifras, resúmenes, consultas o análisis EN TEXTO. "
+        "Ejemplos: 'cuánto vendió Ana', 'dónde quedó el resultado', 'cuántos pedidos completados', "
+        "'dame un resumen', 'quién tiene más ventas', 'explícame los datos'.\n\n"
+        "- ACCION_EXCEL: el usuario quiere que se MODIFIQUE el archivo con fórmulas, colores, tablas, gráficas, etc. "
+        "Ejemplos: 'pon en verde', 'aplica SUMAR.SI', 'agrega una columna de margen', "
+        "'calcula la comisión en el archivo', 'haz una gráfica', 'colorea de morado'.\n\n"
+        "- CONFIRMAR_EXCEL: el usuario confirma que quiere recibir el archivo Excel ya preparado. "
+        "Ejemplos: 'sí mándamelo', 'sí envíamelo', 'ponlo en el archivo', 'sí hazlo', 'dale'.\n\n"
+        "Responde ÚNICAMENTE con una de estas tres palabras: PREGUNTA_DATOS, ACCION_EXCEL, CONFIRMAR_EXCEL. "
+        "Sin explicaciones, sin puntuación extra."
+    )
+    messages = [
+        {"role": "system", "content": f"{system_prompt}\n\nResumen del archivo en sesión:\n{df_summary}"},
+        {"role": "user", "content": texto}
+    ]
+    try:
+        from groq import AsyncGroq
+        gclient = AsyncGroq(api_key=GROQ_API_KEY)
+        for m in MODELOS_GROQ:
+            try:
+                res = await gclient.chat.completions.create(
+                    messages=messages,
+                    model=m,
+                    temperature=0.0,
+                    max_tokens=20
+                )
+                result = res.choices[0].message.content.strip().upper()
+                if result in ("PREGUNTA_DATOS", "ACCION_EXCEL", "CONFIRMAR_EXCEL"):
+                    print(f"[classify_intent] '{texto[:40]}...' → {result}", flush=True)
+                    return result
+                break
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"[classify_intent] Error: {e}", flush=True)
+    return "ACCION_EXCEL"
+
+
+async def ask_ai_chat(pregunta: str, df: pd.DataFrame, chat_id: int = None, ofrecer_excel: bool = False) -> str:
     """Genera una respuesta humana, concisa y ejecutiva analizando criterios y con memoria conversacional."""
     analisis_datos = analyze_query_with_df(pregunta, df)
 
     system_prompt = (
-        "Eres el 'Agente 007', copiloto senior de operaciones y analista universal de datos (NOC Telecom & Negocios). "
-        "Habla de forma humana, ejecutiva, profesional y amigable con tu jefe ('Hola jefe', 'Buen día'). "
-        "Tienes dos especialidades integradas: "
-        "1) MODO TELECOM NOC: Monitoreo en vivo de tickets, fallas de red, portabilidades y cruces en base de datos. "
-        "2) MODO ANALISTA UNIVERSAL: Tienes la capacidad comprobada de recibir, abrir, inspeccionar y transformar cualquier archivo Excel (.xlsx) o CSV "
-        "de ventas, finanzas, inventarios o call center. Puedes calcular márgenes, agregar columnas con fórmulas vivas, "
-        "inyectar BUSCARV/XLOOKUP, generar tablas dinámicas y crear gráficos circulares o de barras nativos. "
-        "REGLA CRÍTICA: NUNCA digas que no tienes la capacidad de abrir o ver archivos que el usuario suba. Si tu jefe te pregunta si puedes leer un archivo, "
-        "confirma con entusiasmo y seguridad técnica que SÍ puedes procesar cualquier archivo .xlsx o .csv que te envíe por este chat de Telegram."
+        "Eres el 'Agente 007', copiloto senior de operaciones y analista universal de datos. "
+        "Habla de forma humana, ejecutiva, profesional y directa con tu jefe. "
+        "REGLAS DE RESPUESTA:\n"
+        "1. Responde la pregunta directamente con los datos relevantes en 2-4 líneas máximo.\n"
+        "2. Usa números concretos cuando los tengas.\n"
+        "3. NO menciones nombres de herramientas, archivos técnicos ni lenguaje de programación.\n"
+        "4. Si ofrecer_excel es True, al FINAL de tu respuesta agrega en una línea aparte: "
+        "'¿Desea que prepare el archivo Excel con este análisis aplicado? Solo diga «sí, mándamelo»'\n"
+        "5. Sé natural, como un supervisor analista que ya revisó los datos."
+    )
+
+    ofrecer_instruction = (
+        "\n\nIMPORTANTE: Al final de tu respuesta, en una línea aparte, agrega exactamente: "
+        "'¿Desea que prepare el archivo Excel con este análisis? Solo diga «sí, mándamelo»'"
+        if ofrecer_excel else ""
     )
 
     messages = [
-        {"role": "system", "content": f"{system_prompt}\n\nDATOS OPERATIVOS EN VIVO:\n{analisis_datos}"}
+        {"role": "system", "content": f"{system_prompt}{ofrecer_instruction}\n\nDATOS OPERATIVOS EN VIVO:\n{analisis_datos}"}
     ]
 
     # Agregar historial reciente (últimos 4 mensajes) si existe para continuidad conversacional
@@ -1407,76 +1476,122 @@ async def run_bot():
                         )
                         continue
 
-                    # 2. Comprobar si es una consulta informativa o pregunta sobre los datos (sin modificar el archivo)
-                    es_pregunta = any(texto_lower.startswith(q) for q in [
-                        "qué ", "que ", "cuál ", "cual ", "cuánto ", "cuanto ", "cuántos ", "cuantos ", "cuántas ", "cuantas ",
-                        "quién ", "quien ", "cómo ", "como ", "dime cuántos", "dime cuantos", "dime quién", "dime quien",
-                        "explícame", "explicame", "ayuda", "qué puedes hacer", "que puedes hacer"
-                    ])
-                    palabras_transformacion = [
-                        "pon", "poner", "colorea", "colorear", "resalta", "resaltar", "elimina", "eliminar",
-                        "agrega", "agregar", "inserta", "insertar", "calcula", "calcular", "separa", "separar",
-                        "grafica", "gráfica", "tabla dinamica", "tabla dinámica", "formato", "semáforo", "semaforo", "filtra", "filtrar"
-                    ]
-                    es_orden_transformacion = any(kw in texto_lower for kw in palabras_transformacion)
-
-                    if es_pregunta and not es_orden_transformacion and chat_id in DATAFRAME_SESION and DATAFRAME_SESION[chat_id].get("df") is not None:
-                        df_actual = DATAFRAME_SESION[chat_id]["df"]
-                        resp_ai = await ask_ai_chat(texto, df_actual, chat_id=chat_id)
-                        await client.post(
-                            f"{BASE_URL}/sendMessage",
-                            json={"chat_id": chat_id, "text": resp_ai, "reply_markup": build_main_menu_keyboard(has_file=True)}
-                        )
-                        continue
-
-                    # Si el usuario tiene un archivo subido activo en memoria: procesar con Analista Universal
+                    # ── CLASIFICACIÓN DE INTENCIÓN (LLM como enrutador) ──────────────
+                    # Si hay archivo en sesión, clasificamos PRIMERO antes de cualquier acción
                     if chat_id in DATAFRAME_SESION and DATAFRAME_SESION[chat_id].get("raw_bytes"):
-                        raw_b = DATAFRAME_SESION[chat_id]["raw_bytes"]
-                        f_name = DATAFRAME_SESION[chat_id]["filename"]
+                        raw_b    = DATAFRAME_SESION[chat_id]["raw_bytes"]
+                        f_name   = DATAFRAME_SESION[chat_id]["filename"]
+                        df_sesion = DATAFRAME_SESION[chat_id].get("df")
 
-                        await client.post(
-                            f"{BASE_URL}/sendMessage",
-                            json={"chat_id": chat_id, "text": f"⏳ Procesando petición sobre `{f_name}`..."}
-                        )
+                        # Resumen del archivo para el clasificador
+                        df_summary = ""
+                        if df_sesion is not None:
+                            cols = list(df_sesion.columns)[:8]
+                            df_summary = f"Archivo: {f_name} | Columnas: {cols} | Filas: {len(df_sesion)}"
 
-                        try:
-                            # Orquestación formal mediante LangGraph StateGraph (Router -> Determinista / IA -> Auto-healing)
+                        intencion = await classify_user_intent(texto, df_summary)
+
+                        # ── CASO 1: PREGUNTA_DATOS ────────────────────────────────────────
+                        if intencion == "PREGUNTA_DATOS":
+                            df_actual = df_sesion if df_sesion is not None else pd.DataFrame()
+                            resp_ai = await ask_ai_chat(texto, df_actual, chat_id=chat_id, ofrecer_excel=True)
+                            # Guardar la instrucción pendiente por si confirma después
+                            DATAFRAME_SESION[chat_id]["pending_action"] = texto
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": chat_id, "text": resp_ai, "reply_markup": build_main_menu_keyboard(has_file=True)}
+                            )
+                            continue
+
+                        # ── CASO 2: CONFIRMAR_EXCEL ───────────────────────────────────────
+                        elif intencion == "CONFIRMAR_EXCEL":
+                            instruccion = DATAFRAME_SESION[chat_id].get("pending_action", texto)
+                            await client.post(
+                                f"{BASE_URL}/sendMessage",
+                                json={"chat_id": chat_id, "text": f"⏳ Preparando el archivo con «{instruccion}»..."}
+                            )
                             try:
-                                res_bytes, out_name, out_msg, graph_history = await run_agent_graph(raw_b, texto, f_name)
-                            except Exception as e_graph:
-                                print(f"⚠️ [LangGraph fallback]: {e_graph}", flush=True)
-                                res_bytes, out_name, out_msg = process_universal_excel(raw_b, texto, f_name)
+                                try:
+                                    res_bytes, out_name, out_msg, graph_history = await run_agent_graph(raw_b, instruccion, f_name)
+                                except Exception as e_graph:
+                                    print(f"⚠️ [LangGraph fallback CONFIRMAR]: {e_graph}", flush=True)
+                                    res_bytes, out_name, out_msg = process_universal_excel(raw_b, instruccion, f_name)
+                                    graph_history = None
 
-                            # Actualizar los raw_bytes de la sesión con la versión modificada
-                            DATAFRAME_SESION[chat_id]["raw_bytes"] = res_bytes
-                            save_user_session(chat_id, DATAFRAME_SESION[chat_id].get("file_id", ""), f_name, res_bytes, DATAFRAME_SESION[chat_id].get("sheets", []), DATAFRAME_SESION[chat_id].get("active_sheet", "Base_Datos"), DATAFRAME_SESION[chat_id].get("df"))
-                            
-                            files = {"document": (out_name, res_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
-                            await client.post(
-                                f"{BASE_URL}/sendDocument",
-                                data={"chat_id": chat_id, "caption": f"📁 {out_name} generado con fórmulas vivas y formatos."},
-                                files=files
-                            )
-                            report_card = format_executive_report_card(
-                                titulo_accion=f"\"{texto}\"",
-                                file_name=f_name,
-                                total_filas=DATAFRAME_SESION[chat_id].get("total_filas", 0),
-                                sheet_name=DATAFRAME_SESION[chat_id].get("active_sheet", "Base_Datos"),
-                                summary_detail=out_msg,
-                                graph_history=graph_history if 'graph_history' in locals() else None
-                            )
+                                DATAFRAME_SESION[chat_id]["raw_bytes"] = res_bytes
+                                DATAFRAME_SESION[chat_id].pop("pending_action", None)
+                                save_user_session(chat_id, DATAFRAME_SESION[chat_id].get("file_id", ""), f_name, res_bytes, DATAFRAME_SESION[chat_id].get("sheets", []), DATAFRAME_SESION[chat_id].get("active_sheet", "Base_Datos"), DATAFRAME_SESION[chat_id].get("df"))
+
+                                files = {"document": (out_name, res_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+                                await client.post(
+                                    f"{BASE_URL}/sendDocument",
+                                    data={"chat_id": chat_id, "caption": f"📁 {out_name} listo con el análisis aplicado."},
+                                    files=files
+                                )
+                                report_card = format_executive_report_card(
+                                    titulo_accion=f"\"{instruccion}\"",
+                                    file_name=f_name,
+                                    total_filas=DATAFRAME_SESION[chat_id].get("total_filas", 0),
+                                    sheet_name=DATAFRAME_SESION[chat_id].get("active_sheet", "Base_Datos"),
+                                    summary_detail=out_msg,
+                                    graph_history=graph_history
+                                )
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": chat_id, "text": report_card, "reply_markup": build_main_menu_keyboard(has_file=True)}
+                                )
+                            except Exception as e_conf:
+                                print(f"Error CONFIRMAR_EXCEL: {e_conf}", flush=True)
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": chat_id, "text": f"⚠️ No pude generar el archivo: {str(e_conf)}", "reply_markup": build_main_menu_keyboard(has_file=True)}
+                                )
+                            continue
+
+                        # ── CASO 3: ACCION_EXCEL (orden directa de modificar) ─────────────
+                        else:  # intencion == "ACCION_EXCEL"
                             await client.post(
                                 f"{BASE_URL}/sendMessage",
-                                json={"chat_id": chat_id, "text": report_card, "reply_markup": build_main_menu_keyboard(has_file=True)}
+                                json={"chat_id": chat_id, "text": f"⏳ Procesando petición sobre `{f_name}`..."}
                             )
+                            try:
+                                try:
+                                    res_bytes, out_name, out_msg, graph_history = await run_agent_graph(raw_b, texto, f_name)
+                                except Exception as e_graph:
+                                    print(f"⚠️ [LangGraph fallback ACCION]: {e_graph}", flush=True)
+                                    res_bytes, out_name, out_msg = process_universal_excel(raw_b, texto, f_name)
+                                    graph_history = None
+
+                                DATAFRAME_SESION[chat_id]["raw_bytes"] = res_bytes
+                                DATAFRAME_SESION[chat_id].pop("pending_action", None)
+                                save_user_session(chat_id, DATAFRAME_SESION[chat_id].get("file_id", ""), f_name, res_bytes, DATAFRAME_SESION[chat_id].get("sheets", []), DATAFRAME_SESION[chat_id].get("active_sheet", "Base_Datos"), DATAFRAME_SESION[chat_id].get("df"))
+
+                                files = {"document": (out_name, res_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+                                await client.post(
+                                    f"{BASE_URL}/sendDocument",
+                                    data={"chat_id": chat_id, "caption": f"📁 {out_name} generado con fórmulas vivas y formatos."},
+                                    files=files
+                                )
+                                report_card = format_executive_report_card(
+                                    titulo_accion=f"\"{texto}\"",
+                                    file_name=f_name,
+                                    total_filas=DATAFRAME_SESION[chat_id].get("total_filas", 0),
+                                    sheet_name=DATAFRAME_SESION[chat_id].get("active_sheet", "Base_Datos"),
+                                    summary_detail=out_msg,
+                                    graph_history=graph_history
+                                )
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": chat_id, "text": report_card, "reply_markup": build_main_menu_keyboard(has_file=True)}
+                                )
+                            except Exception as e_univ:
+                                print(f"Error ACCION_EXCEL: {e_univ}", flush=True)
+                                await client.post(
+                                    f"{BASE_URL}/sendMessage",
+                                    json={"chat_id": chat_id, "text": f"⚠️ Detalle al procesar '{f_name}': {str(e_univ)}", "reply_markup": build_main_menu_keyboard(has_file=True)}
+                                )
                             continue
-                        except Exception as e_univ:
-                            print(f"Error procesando universal excel: {e_univ}", flush=True)
-                            await client.post(
-                                f"{BASE_URL}/sendMessage",
-                                json={"chat_id": chat_id, "text": f"⚠️ Detalle al procesar '{f_name}': {str(e_univ)}", "reply_markup": BOTONES_ACCIONES}
-                            )
-                            continue
+
 
                     # 🛡️ CAPA 0: ESCUDO DE SEGURIDAD PERIMETRAL (Guardrail Anti-Jailbreak)
                     if check_perimeter_security(texto):
