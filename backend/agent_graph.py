@@ -153,7 +153,7 @@ async def code_generator_node(state: AgentState) -> Dict[str, Any]:
         "Tu única tarea es generar un script en Python usando openpyxl y pandas para transformar un archivo Excel en memoria.\n"
         "Reglas estrictas:\n"
         "1. El archivo está cargado como objeto openpyxl llamado 'wb' (wb = openpyxl.load_workbook(io.BytesIO(file_bytes)) ya existe).\n"
-        "2. NUNCA inventes columnas ni uses openpyxl.load_workbook ni wb.save() al final. El entorno ya precarga: 'wb', 'openpyxl', 'pd', 're', 'math', 'datetime', 'unicodedata', 'COLOR_MAP', 'get_fill', 'normalize_text'.\n"
+        "2. NUNCA inventes columnas ni uses openpyxl.load_workbook ni wb.save() al final. El entorno ya precarga: 'wb', 'openpyxl', 'pd', 're', 'math', 'datetime', 'unicodedata', 'COLOR_MAP', 'get_fill', 'normalize_text', 'get_or_create_sheet'.\n"
         "3. SIEMPRE inicializa todas las variables antes de usarlas en bucles o condicionales.\n"
         "4. FILAS DE TOTALES Y TIPOS: Ignora filas donde alguna celda contenga 'Total' o 'Total General'. Al sumar columnas en pandas usa siempre pd.to_numeric(col, errors='coerce').fillna(0).\n"
         "5. COLUMNAS PRECALCULADAS Y PRIORIDAD: Las columnas '% Margen de Ganancia' y 'Ganancia ($)' ya han sido higienizadas y contienen NÚMEROS REALES (ej: 0.508 para 50.8%, o montos numéricos). NO contienen fórmulas vacías ni None.\n"
@@ -167,7 +167,11 @@ async def code_generator_node(state: AgentState) -> Dict[str, Any]:
         "   - Usa la función precargada `normalize_text(val)` para comparar ciudades, nombres o textos sin acentos ni mayúsculas.\n"
         "   - Si el usuario busca 'ciudad de mexico', 'cdmx' o 'mexico', comprueba: `any(k in normalize_text(ciudad_val) for k in ['mexico', 'cdmx'])`.\n"
         "   - REGLA DE FILA COMPLETA OBLIGATORIA: Si piden poner en morado, verde o cualquier color los vendedores o registros de cierta ciudad: colorea TODA LA FILA COMPLETA horizontalmente (todos los campos desde la columna 1 hasta max_column de esa fila: `for c_idx in range(1, ws.max_column + 1): ws.cell(r, c_idx).fill = get_fill('morado')`). NO limites el color a solo la celda del nombre.\n"
-        "8. Devuelve ÚNICAMENTE el código Python puro, sin explicaciones ni markdown."
+        "8. MANEJO DE PESTAÑAS, TYPOS Y FÓRMULAS NATIVAS:\n"
+        "   - TOLERANCIA A ERRORES DE TIPEO EN MÓVIL: Interpreta errores comunes como 'cintar si' -> COUNTIF, 'cuatis' -> cuántos, 'resuoeta' -> respuesta, 'usra' -> usar.\n"
+        "   - FÓRMULAS NATIVAS EN INGLÉS: En openpyxl escribe SIEMPRE las fórmulas en inglés y mayúsculas: COUNTIF, SUMIF, AVERAGE, VLOOKUP, IFERROR.\n"
+        "   - CREACIÓN SEGURA DE PESTAÑAS: Si el usuario pide poner el resultado en una pestaña específica (ej: 'en la hoja de contar si'): usa SIEMPRE la función precargada `ws_dest = get_or_create_sheet(wb, 'Contar_Si')`. NUNCA hagas `wb['nombre']` directo sin verificar o crear si no existe.\n"
+        "9. Devuelve ÚNICAMENTE el código Python puro, sin explicaciones ni markdown."
     )
 
     if error_msg and retry_count > 0:

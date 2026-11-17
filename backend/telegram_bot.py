@@ -12,6 +12,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
+import logging
+logger = logging.getLogger("telegram_bot")
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1442,7 +1444,7 @@ async def run_bot():
                             try:
                                 res_bytes, out_name, out_msg, graph_history = await run_agent_graph(raw_b, texto, f_name)
                             except Exception as e_graph:
-                                logger.warning(f"LangGraph arrojó excepción ({e_graph}), ejecutando fallback directo:")
+                                print(f"⚠️ [LangGraph fallback]: {e_graph}", flush=True)
                                 res_bytes, out_name, out_msg = process_universal_excel(raw_b, texto, f_name)
 
                             # Actualizar los raw_bytes de la sesión con la versión modificada

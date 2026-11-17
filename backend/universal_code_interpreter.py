@@ -111,6 +111,17 @@ def normalize_text(val: Any) -> str:
         if unicodedata.category(c) != "Mn"
     ).lower().strip()
 
+def get_or_create_sheet(wb: openpyxl.Workbook, sheet_name: str):
+    """Busca una hoja por coincidencia flexible de nombre o la crea de forma segura si no existe."""
+    if not sheet_name:
+        return wb.active
+    target_norm = normalize_text(sheet_name)
+    for s in wb.sheetnames:
+        if normalize_text(s) == target_norm or target_norm in normalize_text(s):
+            return wb[s]
+    clean_title = re.sub(r'[\\/*?:\[\]]', '', str(sheet_name)).strip()[:31] or "Resultado"
+    return wb.create_sheet(title=clean_title)
+
 def extract_metadata_schema(file_bytes: bytes) -> dict:
     """Extrae únicamente nombres de pestañas y cabeceras sin exponer los datos sensibles."""
     if not file_bytes.startswith(b'PK\x03\x04'):
@@ -281,7 +292,8 @@ def execute_safe_excel_transformation(file_bytes: bytes, code_str: str, file_nam
         "pd": pd,
         "COLOR_MAP": COLOR_MAP,
         "get_fill": get_fill,
-        "normalize_text": normalize_text
+        "normalize_text": normalize_text,
+        "get_or_create_sheet": get_or_create_sheet
     }
 
     # Sanitizar código antes de ejecutar para eliminar backticks o markdown residuales
