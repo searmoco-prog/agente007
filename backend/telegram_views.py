@@ -90,6 +90,7 @@ def format_file_uploaded_card(file_name: str, total_filas: int, sheets: List[str
         f"📄 **Documento:** `{file_name}`\n"
         f"📈 **Registros:** `{total_filas} filas` • `{len(columns)} columnas`\n"
         f"📑 **Pestaña activa:** `{active_sheet}`\n"
+        f"📂 **Pestañas disponibles:** {sheets_str}\n"
         f"🏷️ **Columnas:** _{cols_preview}_\n\n"
         "👇 *Toca un atajo rápido abajo o escribe tu instrucción en el chat:*"
     )

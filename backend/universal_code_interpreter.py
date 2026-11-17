@@ -146,15 +146,17 @@ def extract_metadata_schema(file_bytes: bytes) -> dict:
         ws = wb[sname]
         headers = []
         for r in range(1, min(ws.max_row + 1, 15)):
-            row_vals = [str(ws.cell(r, c).value or "").strip() for c in range(1, min(ws.max_column + 1, 20))]
+            row_vals = [str(ws.cell(r, c).value or "").strip() for c in range(1, min(ws.max_column + 1, 30))]
             non_empty = [v for v in row_vals if v]
             if len(non_empty) >= 2:
                 headers = non_empty
                 break
+        has_charts = len(getattr(ws, '_charts', [])) > 0
         schema["sheets"][sname] = {
             "columns": headers,
             "max_row": ws.max_row,
-            "max_col": ws.max_column
+            "max_col": ws.max_column,
+            "has_charts": has_charts
         }
     return schema
 
@@ -210,8 +212,16 @@ async def generate_python_transformation_code(schema: dict, user_prompt: str) ->
         "     Usa: `(val > 50 or (0 < val <= 1.0 and val > 0.50))` para aceptar ambos formatos.\n"
         "   - ESTRATEGIA PARA COLOREAR EL VENDEDOR MÁS ALTO: Si el usuario pide colorear el cliente/vendedor con mayor porcentaje o mayor valor, "
         "     primero calcula el MÁXIMO, luego recorre todas las filas y colorea SOLO las que tienen ese valor máximo (o supera un umbral).\n"
-        "6. Al terminar, si modificaste una hoja específica, asegúrate de marcarla activa: `wb.active = ws_target`.\n"
-        "7. Devuelve EXCLUSIVAMENTE el bloque de código entre ```python y ```, sin explicaciones ni saludos."
+        "6. ARQUITECTURA MULTI-PESTAÑA Y FÓRMULAS CRUZADAS (ORIGEN VS DESTINO):\n"
+        "   - Si el usuario pide un cálculo, fórmula o resumen (ej: CONTAR.SI / COUNTIF, BUSCARV, SUMAR.SI) y menciona una hoja destino (ej: 'en la hoja contar si', 'en la pestaña Resumen'):\n"
+        "     a) Identifica la hoja origen (donde viven los datos crudos) buscando la pestaña que tenga las columnas relevantes.\n"
+        "     b) Localiza o crea la hoja destino usando: `ws_dest = get_or_create_sheet(wb, 'nombre_hoja_solicitada')`.\n"
+        "     c) En la hoja destino, inserta la fórmula en inglés apuntando a la hoja origen con comillas simples si tiene espacios: ej: `=COUNTIF('Base_Datos'!H2:H100, \"Completado\")`.\n"
+        "     d) Escribe encabezados elegantes en la hoja destino (ej: celda A1: 'Métrica', celda B1: 'Total', celda A2: 'Pedidos Completados', celda B2: la fórmula nativa de Excel).\n"
+        "   - PRESERVACIÓN DE GRÁFICAS: Si una hoja tiene gráficas (`has_charts: True`), NUNCA borres ni reemplaces esa hoja completa. Conserva siempre todos los datos originales intactos.\n"
+        "   - TOLERANCIA A ERRATAS DE MÓVIL: Interpreta 'cintar si' -> COUNTIF, 'cuatis' -> cuántos, 'resuoeta' -> respuesta, 'usra' -> usar.\n"
+        "7. Al terminar, marca como activa la hoja destino o modificada: `wb.active = ws_target`.\n"
+        "8. Devuelve EXCLUSIVAMENTE el bloque de código entre ```python y ```, sin explicaciones ni saludos."
     )
 
     user_msg = (
