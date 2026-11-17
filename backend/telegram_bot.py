@@ -1126,7 +1126,7 @@ async def run_bot():
                                 
                                 await client.post(
                                     f"{BASE_URL}/sendMessage",
-                                    json={"chat_id": cb_chat_id, "text": f"⚡ Ejecutando: **{s_title}** sobre `{f_name}`..."}
+                                    json={"chat_id": cb_chat_id, "text": f"⏳ Procesando: **{s_title}**..."}
                                 )
                                 
                                 try:
@@ -1384,7 +1384,7 @@ async def run_bot():
 
                         await client.post(
                             f"{BASE_URL}/sendMessage",
-                            json={"chat_id": chat_id, "text": f"⚡ Ejecutando transformaciones de Analista Universal sobre '{f_name}'..."}
+                            json={"chat_id": chat_id, "text": f"⏳ Procesando petición sobre `{f_name}`..."}
                         )
 
                         try:

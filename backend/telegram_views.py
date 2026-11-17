@@ -79,23 +79,21 @@ def build_category_shortcuts_keyboard(cat_key: str) -> dict:
 
 def format_file_uploaded_card(file_name: str, total_filas: int, sheets: List[str], active_sheet: str, columns: List[str]) -> str:
     """Diseña la tarjeta ejecutiva cuando un usuario sube un archivo nuevo."""
-    cols_preview = ", ".join(columns[:6])
-    if len(columns) > 6:
-        cols_preview += f" (+{len(columns) - 6} más)"
+    cols_preview = ", ".join(columns[:5])
+    if len(columns) > 5:
+        cols_preview += f" (+{len(columns) - 5} más)"
     
     sheets_str = ", ".join(sheets) if sheets else "Hoja1"
     
     card = (
-        "╔═══════════════════════════════════╗\n"
-        "   📥 ARCHIVO RECIBIDO Y BLINDADO   \n"
-        "╚═══════════════════════════════════╝\n\n"
-        f"📄 **Archivo:** `{file_name}`\n"
-        f"📊 **Pestaña Activa:** `{active_sheet}`\n"
-        f"📑 **Pestañas Detectadas:** {sheets_str}\n"
-        f"📈 **Registros:** `{total_filas} filas`\n"
-        f"🏷️ **Columnas:** _{cols_preview}_\n\n"
-        "🛡️ **Higiene Zero-Leak:** Fórmulas evaluadas y datos preparados en RAM.\n\n"
-        "👇 **Selecciona una acción rápida en los botones o escribe tu propia instrucción:**"
+        "📥 **Archivo listo para trabajar**\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📄 **Documento:** `{file_name}`\n"
+        f"📈 **Registros:** `{total_filas} filas` • `{len(columns)} columnas`\n"
+        f"📑 **Pestaña activa:** `{active_sheet}`\n"
+        f"🏷️ **Columnas:** _{cols_preview}_\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "👇 *Toca un atajo rápido abajo o escribe tu instrucción en el chat:*"
     )
     return card
 
@@ -107,46 +105,49 @@ def format_executive_report_card(
     summary_detail: str,
     graph_history: Optional[List[str]] = None
 ) -> str:
-    """Diseña la tarjeta de confirmación de ejecución de alta calidad ejecutiva."""
-    # Extraer los pasos clave del historial si existen
-    pasos_clave = []
-    if graph_history:
-        for h in graph_history:
-            if "hygiene_node" in h and "precalculadas" in h:
-                pasos_clave.append("🧹 Higiene de datos y pre-cálculo")
-            elif "router_node" in h and "Enrutado" in h:
-                pasos_clave.append("🧭 Enrutamiento inteligente")
-            elif "executor_evaluator_node" in h and "éxito" in h:
-                pasos_clave.append("⚡ Ejecución en sandbox local")
+    """Diseña la tarjeta de confirmación de ejecución ejecutiva minimalista."""
+    # Limpieza profunda de textos técnicos
+    resumen_limpio = summary_detail
+    for remove_str in [
+        "🤖 **Transformación Universal Completada con IA Senior:**",
+        "⚡ **Procesado con éxito por Agente 007 (LangGraph + Groq):**",
+        "• Ruta ejecutada: `StateGraph -> CodeInterpreter -> Evaluator -> Done`",
+        "• Privacidad Zero-Data Leak garantizada (ejecución 100% en RAM local).",
+        "Cero fuga de datos: solo se enviaron los nombres de columnas a la IA; los datos se procesaron en RAM.",
+        "• Se ejecutó código generado a medida para:"
+    ]:
+        resumen_limpio = resumen_limpio.replace(remove_str, "").strip()
 
-    resumen_limpio = summary_detail.replace("🤖 **Transformación Universal Completada con IA Senior:**", "").strip()
-    resumen_limpio = resumen_limpio.replace("⚡ **Procesado con éxito por Agente 007 (LangGraph + Groq):**", "").strip()
+    # Eliminar viñetas vacías o líneas repetitivas
+    lineas = [l.strip() for l in resumen_limpio.splitlines() if l.strip() and not l.strip().startswith("• Petición resuelta:")]
+    resumen_limpio = " ".join(lineas).strip()
+    if not resumen_limpio:
+        resumen_limpio = "Cambios aplicados exitosamente con fórmulas vivas y formatos."
 
     card = (
-        "╔═══════════════════════════════════╗\n"
-        "   ⚡ TRANSFORMACIÓN EJECUTADA      \n"
-        "╚═══════════════════════════════════╝\n\n"
+        "✨ **Transformación completada con éxito**\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
         f"🎯 **Acción:** {titulo_accion}\n"
-        f"📄 **Archivo:** `{file_name}`\n"
-        f"📊 **Hoja Modificada:** `{sheet_name}`\n"
-        f"📈 **Registros Evaluados:** `{total_filas}`\n\n"
-        f"💡 **Resultado:**\n{resumen_limpio}\n\n"
-        "📁 Tu archivo enriquecido con fórmulas vivas está listo abajo 👇"
+        f"📄 **Archivo:** `{file_name}` ({total_filas} registros)\n"
+        f"📊 **Hoja:** `{sheet_name}`\n"
+        f"✅ **Resultado:** {resumen_limpio}\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "📁 *Tu archivo enriquecido está listo arriba 👆*"
     )
     return card
 
 def format_categories_menu_card() -> str:
     """Texto descriptivo para el catálogo de categorías."""
     card = (
-        "╔═══════════════════════════════════╗\n"
-        "   ⚡ CATÁLOGO DE ATAJOS RÁPIDOS    \n"
-        "╚═══════════════════════════════════╝\n\n"
-        "Selecciona una categoría de operaciones para ver las acciones disponibles:\n\n"
-        "• 🧹 **Limpieza y Formato:** Separar nombres, duplicados, espacios.\n"
-        "• 🎨 **Semáforos y Colores:** Resaltar márgenes, top ventas, alertas.\n"
-        "• 📊 **Tablas y Gráficas:** Dinámicas, resúmenes agrupados, donas.\n"
-        "• 🔢 **Fórmulas y Cálculos:** Fila de totales, promedios, BUSCARV.\n"
-        "• ⭐ **Pack 3 en 1:** Aplica las transformaciones más completas juntas."
+        "⚡ **Catálogo de Atajos Rápidos**\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "Elige una categoría para ver sus opciones:\n\n"
+        "🧹 **Limpieza:** Separar nombres, duplicados, espacios.\n"
+        "🎨 **Semáforos:** Márgenes, top ventas, alertas de color.\n"
+        "📊 **Tablas y Gráficas:** Dinámicas, donas, barras.\n"
+        "🔢 **Cálculos:** Totales, promedios, BUSCARV / comisiones.\n"
+        "⭐ **Pack 3 en 1:** Todas las mejoras juntas en 1 clic.\n"
+        "━━━━━━━━━━━━━━━━━━━━━"
     )
     return card
 
@@ -155,34 +156,32 @@ def format_category_detail_card(cat_key: str) -> str:
     cat_info = CATEGORIAS.get(cat_key, {})
     nombre = cat_info.get("nombre", "Operaciones")
     desc = cat_info.get("descripcion", "")
+    icono = cat_info.get("icono", "⚡")
     
     card = (
-        f"╔═══════════════════════════════════╗\n"
-        f"   {cat_info.get('icono', '⚡')} {nombre.upper()}\n"
-        f"╚═══════════════════════════════════╝\n\n"
+        f"{icono} **{nombre}**\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
         f"_{desc}_\n\n"
-        "Toca una opción para aplicarla directamente a tu archivo:"
+        "👇 *Toca una acción para aplicarla a tu Excel:*"
     )
     return card
 
 def format_help_card() -> str:
     """Tarjeta de ayuda y comandos para el usuario."""
     card = (
-        "╔═══════════════════════════════════╗\n"
-        "   🤖 GUÍA DEL AGENTE 007 v4.0       \n"
-        "╚═══════════════════════════════════╝\n\n"
-        "Puedes interactuar conmigo de dos formas:\n\n"
-        "1️⃣ **Con Botones y Atajos:**\n"
-        "• Toca **⚡ Atajos Rápidos** para navegar por categorías sin escribir.\n"
-        "• Usa **⭐ Aplicar Todo** para agregar semáforos, tabla dinámica y buscador en 1 clic.\n\n"
-        "2️⃣ **Con Lenguaje Natural:**\n"
-        "Escríbeme lo que necesitas en tus propias palabras:\n"
-        "• _\"pon en rojo el vendedor con mayor margen\"_\n"
-        "• _\"separa los nombres y apellidos\"_\n"
-        "• _\"colorea en amarillo las ventas mayores a 50%\"_\n\n"
-        "📌 **Comandos Disponibles:**\n"
-        "• `/atajos` o `/menu` ➡️ Abre el catálogo de acciones rápidas.\n"
-        "• `/reset` ➡️ Restablece hacia la base oficial en vivo.\n"
-        "• `/modo` ➡️ Alterna entre Analista Universal y NOC Telecom."
+        "🤖 **Agente 007 • Guía de Uso**\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "Puedes usarme de dos formas muy sencillas:\n\n"
+        "1️⃣ **Con Atajos Rápidos:**\n"
+        "• Toca **⚡ Atajos Rápidos** para elegir acciones por categoría.\n"
+        "• Usa **⭐ Pack 3 en 1** para enriquecer todo en 1 clic.\n\n"
+        "2️⃣ **Con Lenguaje Natural (Chat):**\n"
+        "Escríbeme lo que quieres tal como lo piensas:\n"
+        "• _\"pon en morado los vendedores de la ciudad de mexico\"_\n"
+        "• _\"resalta en rojo los gastos mayores a 20,000\"_\n"
+        "• _\"agrega una columna de comisión del 5%\"_\n\n"
+        "📌 **Comandos útiles:**\n"
+        "• `/atajos` ➡️ Abre el menú de botones rápidos.\n"
+        "• `/reset` ➡️ Restablece el archivo al original."
     )
     return card

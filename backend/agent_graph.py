@@ -230,12 +230,7 @@ def executor_evaluator_node(state: AgentState) -> Dict[str, Any]:
         res_bytes, out_filename = execute_safe_excel_transformation(file_bytes, code_str, file_name)
         history.append("executor_evaluator_node: Código ejecutado con éxito total ✅")
         
-        summary = (
-            f"⚡ **Procesado con éxito por Agente 007 (LangGraph + Groq):**\n"
-            f"• Ruta ejecutada: `StateGraph -> CodeInterpreter -> Evaluator -> Done`\n"
-            f"• Petición resuelta: *\"{instruccion}\"*\n"
-            f"• Privacidad Zero-Data Leak garantizada (ejecución 100% en RAM local)."
-        )
+        summary = f"Cambios aplicados exitosamente para: *\"{instruccion}\"*"
         return {
             "result_bytes": res_bytes,
             "output_filename": out_filename,
