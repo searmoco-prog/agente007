@@ -1377,6 +1377,56 @@ async def run_bot():
                         except Exception as e_res:
                             print(f"Error restaurando sesión persistente: {e_res}", flush=True)
 
+                    # 1. Comprobar si el texto es un saludo casual o saludo inicial (CERO transformación de Excel)
+                    saludos = ["hola", "buen dia", "buenos dias", "buenas", "buenas tardes", "buenas noches", "hey", "hello", "hi", "que tal", "como estas", "que haces", "quien eres", "saludos", "/start"]
+                    t_clean = texto_lower.strip()
+                    es_saludo = (t_clean in saludos) or (any(t_clean.startswith(s + " ") or t_clean.startswith(s + ",") or t_clean.startswith(s + "!") for s in saludos) and len(t_clean) < 40)
+
+                    if es_saludo:
+                        if chat_id in DATAFRAME_SESION and DATAFRAME_SESION[chat_id].get("filename"):
+                            fname = DATAFRAME_SESION[chat_id]["filename"]
+                            filas = DATAFRAME_SESION[chat_id].get("total_filas", 0)
+                            msg_saludo = (
+                                "¡Hola! 🫡 Agente 007 a la orden.\n\n"
+                                f"Tienes cargado el archivo `{fname}` con {filas} registros.\n\n"
+                                "¿Qué te gustaría hacer con tus datos hoy?\n"
+                                "• Pídeme lo que necesites en lenguaje natural (ej. *'pon en morado los vendedores de CDMX'*, *'calcula el margen'*, *'haz una gráfica'*).\n"
+                                "• O toca una acción rápida en los botones de abajo 👇"
+                            )
+                        else:
+                            msg_saludo = (
+                                "¡Hola! 🫡 Agente 007 a la orden.\n\n"
+                                "¿En qué te puedo apoyar hoy?\n"
+                                "📎 Sube o arrastra un archivo Excel (.xlsx) o CSV aquí para comenzar a analizarlo y transformarlo con IA."
+                            )
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={"chat_id": chat_id, "text": msg_saludo, "reply_markup": build_main_menu_keyboard(has_file=(chat_id in DATAFRAME_SESION and bool(DATAFRAME_SESION[chat_id].get("filename"))))}
+                        )
+                        continue
+
+                    # 2. Comprobar si es una consulta informativa o pregunta sobre los datos (sin modificar el archivo)
+                    es_pregunta = any(texto_lower.startswith(q) for q in [
+                        "qué ", "que ", "cuál ", "cual ", "cuánto ", "cuanto ", "cuántos ", "cuantos ", "cuántas ", "cuantas ",
+                        "quién ", "quien ", "cómo ", "como ", "dime cuántos", "dime cuantos", "dime quién", "dime quien",
+                        "explícame", "explicame", "ayuda", "qué puedes hacer", "que puedes hacer"
+                    ])
+                    palabras_transformacion = [
+                        "pon", "poner", "colorea", "colorear", "resalta", "resaltar", "elimina", "eliminar",
+                        "agrega", "agregar", "inserta", "insertar", "calcula", "calcular", "separa", "separar",
+                        "grafica", "gráfica", "tabla dinamica", "tabla dinámica", "formato", "semáforo", "semaforo", "filtra", "filtrar"
+                    ]
+                    es_orden_transformacion = any(kw in texto_lower for kw in palabras_transformacion)
+
+                    if es_pregunta and not es_orden_transformacion and chat_id in DATAFRAME_SESION and DATAFRAME_SESION[chat_id].get("df") is not None:
+                        df_actual = DATAFRAME_SESION[chat_id]["df"]
+                        resp_ai = await ask_ai_chat(texto, df_actual, chat_id=chat_id)
+                        await client.post(
+                            f"{BASE_URL}/sendMessage",
+                            json={"chat_id": chat_id, "text": resp_ai, "reply_markup": build_main_menu_keyboard(has_file=True)}
+                        )
+                        continue
+
                     # Si el usuario tiene un archivo subido activo en memoria: procesar con Analista Universal
                     if chat_id in DATAFRAME_SESION and DATAFRAME_SESION[chat_id].get("raw_bytes"):
                         raw_b = DATAFRAME_SESION[chat_id]["raw_bytes"]

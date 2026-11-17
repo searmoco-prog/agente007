@@ -86,13 +86,11 @@ def format_file_uploaded_card(file_name: str, total_filas: int, sheets: List[str
     sheets_str = ", ".join(sheets) if sheets else "Hoja1"
     
     card = (
-        "📥 **Archivo listo para trabajar**\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "📥 **Archivo listo para trabajar**\n\n"
         f"📄 **Documento:** `{file_name}`\n"
         f"📈 **Registros:** `{total_filas} filas` • `{len(columns)} columnas`\n"
         f"📑 **Pestaña activa:** `{active_sheet}`\n"
-        f"🏷️ **Columnas:** _{cols_preview}_\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🏷️ **Columnas:** _{cols_preview}_\n\n"
         "👇 *Toca un atajo rápido abajo o escribe tu instrucción en el chat:*"
     )
     return card
@@ -125,13 +123,11 @@ def format_executive_report_card(
         resumen_limpio = "Cambios aplicados exitosamente con fórmulas vivas y formatos."
 
     card = (
-        "✨ **Transformación completada con éxito**\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "✨ **Transformación completada con éxito**\n\n"
         f"🎯 **Acción:** {titulo_accion}\n"
         f"📄 **Archivo:** `{file_name}` ({total_filas} registros)\n"
         f"📊 **Hoja:** `{sheet_name}`\n"
-        f"✅ **Resultado:** {resumen_limpio}\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"✅ **Resultado:** {resumen_limpio}\n\n"
         "📁 *Tu archivo enriquecido está listo arriba 👆*"
     )
     return card
@@ -139,15 +135,13 @@ def format_executive_report_card(
 def format_categories_menu_card() -> str:
     """Texto descriptivo para el catálogo de categorías."""
     card = (
-        "⚡ **Catálogo de Atajos Rápidos**\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "⚡ **Catálogo de Atajos Rápidos**\n\n"
         "Elige una categoría para ver sus opciones:\n\n"
         "🧹 **Limpieza:** Separar nombres, duplicados, espacios.\n"
         "🎨 **Semáforos:** Márgenes, top ventas, alertas de color.\n"
         "📊 **Tablas y Gráficas:** Dinámicas, donas, barras.\n"
         "🔢 **Cálculos:** Totales, promedios, BUSCARV / comisiones.\n"
-        "⭐ **Pack 3 en 1:** Todas las mejoras juntas en 1 clic.\n"
-        "━━━━━━━━━━━━━━━━━━━━━"
+        "⭐ **Pack 3 en 1:** Todas las mejoras juntas en 1 clic."
     )
     return card
 
@@ -159,8 +153,7 @@ def format_category_detail_card(cat_key: str) -> str:
     icono = cat_info.get("icono", "⚡")
     
     card = (
-        f"{icono} **{nombre}**\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{icono} **{nombre}**\n\n"
         f"_{desc}_\n\n"
         "👇 *Toca una acción para aplicarla a tu Excel:*"
     )
@@ -169,8 +162,7 @@ def format_category_detail_card(cat_key: str) -> str:
 def format_help_card() -> str:
     """Tarjeta de ayuda y comandos para el usuario."""
     card = (
-        "🤖 **Agente 007 • Guía de Uso**\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "🤖 **Agente 007 • Guía de Uso**\n\n"
         "Puedes usarme de dos formas muy sencillas:\n\n"
         "1️⃣ **Con Atajos Rápidos:**\n"
         "• Toca **⚡ Atajos Rápidos** para elegir acciones por categoría.\n"
